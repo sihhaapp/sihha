@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "SIHHA Android (Zego)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "RFCX509MXNM",
+      "toolArgs": [
+        "--dart-define=API_BASE_URL=http://192.168.1.254:3001/api",
+        "--dart-define=ZEGO_APP_ID=708027368",
+        "--dart-define=ZEGO_APP_SIGN=154132a6b2051aabb7580a50db55deaac35bc4998111f2f30e3d821df0227f87"
+      ]
+    },
+    {
+      "name": "SIHHA Chrome (Zego)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "chrome",
+      "toolArgs": [
+        "--dart-define=API_BASE_URL=http://localhost:3001/api",
+        "--dart-define=ZEGO_APP_ID=708027368",
+        "--dart-define=ZEGO_APP_SIGN=154132a6b2051aabb7580a50db55deaac35bc4998111f2f30e3d821df0227f87"
+      ]
+    }
+  ]
+}
