@@ -1,12 +1,12 @@
-# SIHHA Backend (Node.js + SQLite)
+# SIHHA Backend (Node.js + PostgreSQL)
 
-This backend replaces Firebase completely for:
+This backend replaces Firebase for:
 - Authentication
-- Users/doctors
+- Users/doctors/admin
 - Chat rooms and messages
-- Audio uploads
+- Consultation requests
+- Audio/image/profile uploads
 - Health blogs
-- Profile photos
 
 ## 1) Local run
 
@@ -19,11 +19,9 @@ npm run dev
 
 Backend starts on `http://localhost:3000`.
 
-Before using voice calls, configure LiveKit variables in `.env`:
-- `LIVEKIT_URL` (self-hosted WSS URL)
-- `LIVEKIT_API_KEY`
-- `LIVEKIT_API_SECRET`
-- Optional: `LIVEKIT_TOKEN_TTL_SECONDS`, `LIVEKIT_ROOM_PREFIX`
+Required DB env:
+- `DATABASE_URL` (recommended)
+- Optional: `PGSSLMODE_REQUIRE=true` for managed PG with SSL.
 
 Health check:
 
@@ -31,7 +29,34 @@ Health check:
 GET http://localhost:3000/api/health
 ```
 
-## 2) Flutter connection
+Before using voice calls, configure LiveKit variables in `.env`:
+- `LIVEKIT_URL` (self-hosted WSS URL)
+- `LIVEKIT_API_KEY`
+- `LIVEKIT_API_SECRET`
+- Optional: `LIVEKIT_TOKEN_TTL_SECONDS`, `LIVEKIT_ROOM_PREFIX`
+
+## 2) SQLite -> PostgreSQL migration
+
+If you have existing SQLite data:
+
+1. Set target PostgreSQL in `.env`:
+- `DATABASE_URL=postgresql://...`
+2. Set source SQLite path (optional, defaults to `./data/sihha.db`):
+- `SQLITE_MIGRATION_PATH=./data/sihha.db`
+3. Run migration:
+
+```bash
+npm run migrate:sqlite:pg
+```
+
+Optional full overwrite of target data:
+
+```bash
+set MIGRATE_TRUNCATE_TARGET=true
+npm run migrate:sqlite:pg
+```
+
+## 3) Flutter connection
 
 The app reads backend URL from:
 - Dart define `API_BASE_URL`
@@ -43,13 +68,13 @@ Examples:
 flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000/api
 ```
 
-Real device example (replace with your PC LAN IP):
+Real device example:
 
 ```bash
 flutter run --dart-define=API_BASE_URL=http://192.168.1.50:3000/api
 ```
 
-## 3) API summary
+## 4) API summary
 
 - `POST /api/auth/signup`
 - `POST /api/auth/signin`
@@ -64,7 +89,10 @@ flutter run --dart-define=API_BASE_URL=http://192.168.1.50:3000/api
 - `GET /api/rooms/:roomId/messages`
 - `POST /api/rooms/:roomId/messages/text`
 - `POST /api/uploads/audio` (multipart, field: `audio`)
+- `POST /api/uploads/image` (multipart, field: `image`)
 - `POST /api/rooms/:roomId/messages/audio`
+- `POST /api/rooms/:roomId/messages/image`
+- `POST /api/rooms/:roomId/close`
 - `GET /api/rooms/:roomId/live/status`
 - `POST /api/rooms/:roomId/live/request`
 - `POST /api/rooms/:roomId/live/accept`
@@ -74,27 +102,22 @@ flutter run --dart-define=API_BASE_URL=http://192.168.1.50:3000/api
 - `GET /api/blogs`
 - `POST /api/blogs`
 
-## 4) Hosting notes
-
-For production hosting, use a service that supports:
-- Node.js runtime
-- Persistent disk storage (for SQLite + uploads), or migrate to PostgreSQL + object storage
-
-### Docker build
+## 5) Docker run
 
 ```bash
 cd backend
 docker build -t sihha-backend .
 docker run -p 3000:3000 \
   -e JWT_SECRET=your-secret \
+  -e DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5432/sihha \
   -e PUBLIC_BASE_URL=http://localhost:3000 \
-  -v %cd%/data:/app/data \
   -v %cd%/uploads:/app/uploads \
   sihha-backend
 ```
 
-Recommended production improvements:
-- Move from SQLite to PostgreSQL
-- Store uploads in object storage (S3/R2/Supabase Storage)
-- Add rate limiting and structured logging
-- Add HTTPS-only and strict CORS origin allow-list
+## 6) Production notes
+
+- Keep PostgreSQL backups enabled.
+- Use object storage for uploads (S3/R2/Spaces) for scale.
+- Add rate limiting + structured logs.
+- Enforce HTTPS + strict CORS allow-list.

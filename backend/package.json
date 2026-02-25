@@ -2,11 +2,12 @@
   "name": "sihha-backend",
   "version": "1.0.0",
   "private": true,
-  "description": "SIHHA local backend (Node.js + SQLite)",
+  "description": "SIHHA backend (Node.js + PostgreSQL)",
   "main": "src/server.js",
   "scripts": {
     "dev": "nodemon src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "migrate:sqlite:pg": "node scripts/migrate-sqlite-to-postgres.js"
   },
   "engines": {
     "node": ">=18"
@@ -19,6 +20,7 @@
     "jsonwebtoken": "^9.0.2",
     "livekit-server-sdk": "^2.12.0",
     "multer": "^2.0.2",
+    "pg": "^8.16.3",
     "sqlite": "^5.1.1",
     "sqlite3": "^5.1.7",
     "uuid": "^11.0.3"

@@ -13,7 +13,6 @@ const { initDb } = require("./db");
 
 const PORT = Number(process.env.PORT || 3000);
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
-const DATABASE_PATH = process.env.DATABASE_PATH || "./data/sihha.db";
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").trim();
 const ADMIN_LOCAL_PHONE = "00000000";
 const ADMIN_DISPLAY_PHONE = `+235${ADMIN_LOCAL_PHONE}`;
@@ -2276,7 +2275,7 @@ app.use((err, _req, res, _next) => {
 });
 
 async function start() {
-  db = await initDb(DATABASE_PATH);
+  db = await initDb();
   await ensureAdminAccount();
   app.listen(PORT, () => {
     // eslint-disable-next-line no-console

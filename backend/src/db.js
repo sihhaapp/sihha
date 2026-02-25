@@ -1,19 +1,161 @@
-const fs = require("fs");
-const path = require("path");
-const sqlite3 = require("sqlite3");
-const { open } = require("sqlite");
+const { Pool } = require("pg");
 
-async function initDb(databasePath) {
-  const absolutePath = path.resolve(databasePath);
-  const dir = path.dirname(absolutePath);
-  fs.mkdirSync(dir, { recursive: true });
+class PostgresCompatDb {
+  constructor(pool) {
+    this._pool = pool;
+  }
 
-  const db = await open({
-    filename: absolutePath,
-    driver: sqlite3.Database,
-  });
+  async get(sql, ...params) {
+    const result = await this._query(sql, params);
+    return result.rows[0];
+  }
 
-  await db.exec("PRAGMA foreign_keys = ON;");
+  async all(sql, ...params) {
+    const result = await this._query(sql, params);
+    return result.rows;
+  }
+
+  async run(sql, ...params) {
+    const result = await this._query(sql, params);
+    return {
+      changes: Number(result.rowCount || 0),
+      lastID: undefined,
+    };
+  }
+
+  async exec(sql) {
+    await this._pool.query(sql);
+  }
+
+  async close() {
+    await this._pool.end();
+  }
+
+  async _query(sql, params) {
+    const { text, placeholders } = toPostgresPlaceholders(sql);
+    if (placeholders !== params.length) {
+      throw new Error(
+        `SQL placeholder mismatch: expected ${placeholders}, got ${params.length}.`,
+      );
+    }
+    return this._pool.query(text, params);
+  }
+}
+
+function toPostgresPlaceholders(sql) {
+  let text = "";
+  let placeholders = 0;
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+
+  for (let i = 0; i < sql.length; i += 1) {
+    const ch = sql[i];
+    const next = i + 1 < sql.length ? sql[i + 1] : "";
+
+    if (!inDoubleQuote && ch === "'") {
+      text += ch;
+      if (inSingleQuote && next === "'") {
+        text += next;
+        i += 1;
+      } else {
+        inSingleQuote = !inSingleQuote;
+      }
+      continue;
+    }
+
+    if (!inSingleQuote && ch === '"') {
+      text += ch;
+      inDoubleQuote = !inDoubleQuote;
+      continue;
+    }
+
+    if (!inSingleQuote && !inDoubleQuote && ch === "?") {
+      placeholders += 1;
+      text += `$${placeholders}`;
+      continue;
+    }
+
+    text += ch;
+  }
+
+  return { text, placeholders };
+}
+
+function parseBooleanEnv(name, fallback = false) {
+  const raw = String(process.env[name] || "").trim().toLowerCase();
+  if (!raw) {
+    return fallback;
+  }
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
+function buildPoolConfig() {
+  const databaseUrl = String(process.env.DATABASE_URL || "").trim();
+  const sslEnabled = parseBooleanEnv("PGSSLMODE_REQUIRE", false);
+
+  if (databaseUrl) {
+    return {
+      connectionString: databaseUrl,
+      ssl: sslEnabled ? { rejectUnauthorized: false } : false,
+      max: Number(process.env.PG_POOL_MAX || 20),
+      idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT_MS || 30000),
+    };
+  }
+
+  const host = String(process.env.PGHOST || "").trim();
+  const user = String(process.env.PGUSER || "").trim();
+  const password = String(process.env.PGPASSWORD || "").trim();
+  const database = String(process.env.PGDATABASE || "").trim();
+  const port = Number(process.env.PGPORT || 5432);
+
+  if (!host || !user || !database) {
+    throw new Error(
+      "PostgreSQL configuration missing. Set DATABASE_URL or PGHOST/PGUSER/PGDATABASE.",
+    );
+  }
+
+  return {
+    host,
+    user,
+    password,
+    database,
+    port,
+    ssl: sslEnabled ? { rejectUnauthorized: false } : false,
+    max: Number(process.env.PG_POOL_MAX || 20),
+    idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT_MS || 30000),
+  };
+}
+
+async function ensureColumn(db, tableName, columnName, definition) {
+  const row = await db.get(
+    `SELECT 1
+     FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name = ?
+       AND column_name = ?
+     LIMIT 1`,
+    tableName,
+    columnName,
+  );
+  if (row) {
+    return;
+  }
+  await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition};`);
+}
+
+async function ensureSchema(db) {
+  await db.exec(`
+    CREATE OR REPLACE FUNCTION datetime(input_value TEXT)
+    RETURNS timestamptz
+    LANGUAGE SQL
+    IMMUTABLE
+    AS $$
+      SELECT CASE
+        WHEN input_value IS NULL OR btrim(input_value) = '' THEN NULL
+        ELSE input_value::timestamptz
+      END
+    $$;
+  `);
 
   await db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -42,6 +184,7 @@ async function initDb(databasePath) {
       last_message TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       last_updated_at TEXT NOT NULL,
+      is_closed INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY(patient_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY(doctor_id) REFERENCES users(id) ON DELETE CASCADE
     );
@@ -150,142 +293,21 @@ async function initDb(databasePath) {
       ON consultation_requests(patient_id, status, updated_at DESC);
   `);
 
-  await ensureMessagesTableSupportsNewTypes(db);
-  await ensureMessageStatusColumns(db);
-  await ensureUsersAdminColumns(db);
-  await ensureAnalyticsTables(db);
-  await ensureConsultationRequestColumns(db);
-  await ensureRoomsClosedColumn(db);
+  await ensureColumn(db, "rooms", "is_closed", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(db, "messages", "delivered_at", "TEXT");
+  await ensureColumn(db, "messages", "read_at", "TEXT");
+  await ensureColumn(db, "users", "is_disabled", "INTEGER NOT NULL DEFAULT 0");
+  await ensureColumn(db, "users", "disabled_at", "TEXT");
+  await ensureColumn(db, "consultation_requests", "transferred_by_doctor_id", "TEXT");
+  await ensureColumn(db, "consultation_requests", "linked_room_id", "TEXT");
+}
 
+async function initDb() {
+  const pool = new Pool(buildPoolConfig());
+  const db = new PostgresCompatDb(pool);
+  await db.exec("SELECT 1;");
+  await ensureSchema(db);
   return db;
-}
-
-async function ensureMessagesTableSupportsNewTypes(db) {
-  const row = await db.get(
-    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'messages'",
-  );
-  const createSql = String(row?.sql || "");
-  const hasImage = createSql.includes("'image'");
-  const hasLive = createSql.includes("'live'");
-  if (hasImage && hasLive) {
-    return;
-  }
-
-  await db.exec(`
-    BEGIN TRANSACTION;
-
-    CREATE TABLE messages_new (
-      id TEXT PRIMARY KEY,
-      room_id TEXT NOT NULL,
-      sender_id TEXT NOT NULL,
-      sender_name TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('text', 'audio', 'image', 'live')),
-      content TEXT NOT NULL,
-      duration_seconds INTEGER NOT NULL DEFAULT 0,
-      delivered_at TEXT,
-      read_at TEXT,
-      sent_at TEXT NOT NULL,
-      FOREIGN KEY(room_id) REFERENCES rooms(id) ON DELETE CASCADE,
-      FOREIGN KEY(sender_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    INSERT INTO messages_new (
-      id, room_id, sender_id, sender_name, type, content, duration_seconds, delivered_at, read_at, sent_at
-    )
-    SELECT
-      id, room_id, sender_id, sender_name, type, content, duration_seconds, delivered_at, read_at, sent_at
-    FROM messages;
-
-    DROP TABLE messages;
-    ALTER TABLE messages_new RENAME TO messages;
-
-    CREATE INDEX IF NOT EXISTS idx_messages_room_sent ON messages(room_id, sent_at);
-
-    COMMIT;
-  `);
-}
-
-async function ensureMessageStatusColumns(db) {
-  const columns = await db.all("PRAGMA table_info(messages)");
-  const hasDeliveredAt = columns.some((c) => c.name === "delivered_at");
-  const hasReadAt = columns.some((c) => c.name === "read_at");
-
-  if (!hasDeliveredAt) {
-    await db.exec("ALTER TABLE messages ADD COLUMN delivered_at TEXT;");
-  }
-  if (!hasReadAt) {
-    await db.exec("ALTER TABLE messages ADD COLUMN read_at TEXT;");
-  }
-}
-
-async function ensureUsersAdminColumns(db) {
-  const columns = await db.all("PRAGMA table_info(users)");
-  const hasIsDisabled = columns.some((c) => c.name === "is_disabled");
-  const hasDisabledAt = columns.some((c) => c.name === "disabled_at");
-
-  if (!hasIsDisabled) {
-    await db.exec("ALTER TABLE users ADD COLUMN is_disabled INTEGER NOT NULL DEFAULT 0;");
-  }
-  if (!hasDisabledAt) {
-    await db.exec("ALTER TABLE users ADD COLUMN disabled_at TEXT;");
-  }
-}
-
-async function ensureAnalyticsTables(db) {
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS app_presence (
-      user_id TEXT PRIMARY KEY,
-      last_seen_at TEXT NOT NULL,
-      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS user_daily_activity (
-      user_id TEXT NOT NULL,
-      activity_date TEXT NOT NULL,
-      first_seen_at TEXT NOT NULL,
-      last_seen_at TEXT NOT NULL,
-      PRIMARY KEY(user_id, activity_date),
-      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_app_presence_seen ON app_presence(last_seen_at);
-    CREATE INDEX IF NOT EXISTS idx_daily_activity_date ON user_daily_activity(activity_date);
-  `);
-}
-
-async function ensureConsultationRequestColumns(db) {
-  const tableRow = await db.get(
-    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'consultation_requests'",
-  );
-  if (!tableRow) {
-    return;
-  }
-
-  const columns = await db.all("PRAGMA table_info(consultation_requests)");
-  const hasTransferredBy = columns.some((c) => c.name === "transferred_by_doctor_id");
-  const hasLinkedRoomId = columns.some((c) => c.name === "linked_room_id");
-
-  if (!hasTransferredBy) {
-    await db.exec("ALTER TABLE consultation_requests ADD COLUMN transferred_by_doctor_id TEXT;");
-  }
-  if (!hasLinkedRoomId) {
-    await db.exec("ALTER TABLE consultation_requests ADD COLUMN linked_room_id TEXT;");
-  }
-
-  await db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_consult_req_target_status
-      ON consultation_requests(target_doctor_id, status, updated_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_consult_req_patient_status
-      ON consultation_requests(patient_id, status, updated_at DESC);
-  `);
-}
-
-async function ensureRoomsClosedColumn(db) {
-  const columns = await db.all("PRAGMA table_info(rooms)");
-  const hasClosed = columns.some((c) => c.name === "is_closed");
-  if (!hasClosed) {
-    await db.exec("ALTER TABLE rooms ADD COLUMN is_closed INTEGER NOT NULL DEFAULT 0;");
-  }
 }
 
 module.exports = {

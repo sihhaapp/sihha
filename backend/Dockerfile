@@ -6,9 +6,10 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 COPY src ./src
+COPY scripts ./scripts
 COPY .env.example ./.env.example
 
-RUN mkdir -p /app/data /app/uploads
+RUN mkdir -p /app/uploads
 
 EXPOSE 3000
 

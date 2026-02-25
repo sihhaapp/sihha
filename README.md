@@ -5,7 +5,7 @@ Flutter client for SIHHA telehealth platform.
 ## Architecture
 
 - Mobile app: Flutter
-- Backend API: Node.js + Express + SQLite
+- Backend API: Node.js + Express + PostgreSQL
 - Media uploads: local `backend/uploads`
 
 Firebase has been removed from runtime flow.
