@@ -197,6 +197,7 @@ class _AdminUsersPanel extends StatelessWidget {
     required this.onRefresh,
     required this.onToggleDisabled,
     required this.onResetPassword,
+    required this.onDelete,
   });
 
   final String Function(String, String) tr;
@@ -207,6 +208,7 @@ class _AdminUsersPanel extends StatelessWidget {
   final Future<void> Function() onRefresh;
   final Future<void> Function(AppUser user) onToggleDisabled;
   final Future<void> Function(AppUser user) onResetPassword;
+  final Future<void> Function(AppUser user) onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -293,6 +295,8 @@ class _AdminUsersPanel extends StatelessWidget {
                           onToggleDisabled(user);
                         } else if (value == 'reset_password') {
                           onResetPassword(user);
+                        } else if (value == 'delete') {
+                          onDelete(user);
                         }
                       },
                       itemBuilder: (context) => [
@@ -308,6 +312,12 @@ class _AdminUsersPanel extends StatelessWidget {
                           value: 'reset_password',
                           child: Text(
                             tr('تغيير كلمة المرور', 'Changer le mot de passe'),
+                          ),
+                        ),
+                        PopupMenuItem<String>(
+                          value: 'delete',
+                          child: Text(
+                            tr('حذف الحساب', 'Supprimer le compte'),
                           ),
                         ),
                       ],
@@ -794,6 +804,54 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     }
   }
 
+  Future<void> _deleteUser(AppUser user) async {
+    final tr = context.read<AppSettingsProvider>().tr;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr('Ø­Ø°Ù Ø§Ù„Ø­Ø³Ø§Ø¨', 'Supprimer le compte')),
+        content: Text(
+          tr(
+            'Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† Ø­Ø°Ù Ø­Ø³Ø§Ø¨ ${user.name}ØŸ',
+            'Voulez-vous vraiment supprimer le compte de ${user.name} ?',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(tr('Ø¥Ù„ØºØ§Ø¡', 'Annuler')),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: SihhaPalette.danger,
+            ),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(tr('Ø­Ø°Ù', 'Supprimer')),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final ok = await context.read<AdminProvider>().deleteUser(userId: user.id);
+    if (!mounted) return;
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            tr('ØªÙ… Ø­Ø°Ù Ø§Ù„Ø­Ø³Ø§Ø¨.', 'Compte supprime.'),
+          ),
+        ),
+      );
+      return;
+    }
+    final error = context.read<AdminProvider>().errorMessage;
+    if (error != null && error.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<AppSettingsProvider>();
@@ -826,6 +884,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         onRefresh: _refreshAll,
         onToggleDisabled: _toggleDisabled,
         onResetPassword: _resetPassword,
+        onDelete: _deleteUser,
       ),
     ];
 

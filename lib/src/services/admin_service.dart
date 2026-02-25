@@ -129,6 +129,10 @@ class AdminService {
     );
   }
 
+  Future<void> deleteUser({required String userId}) async {
+    await _apiService.delete('/admin/users/$userId');
+  }
+
   Map<String, dynamic> _readMap(dynamic value) {
     if (value is Map<String, dynamic>) {
       return value;

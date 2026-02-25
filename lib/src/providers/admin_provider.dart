@@ -173,6 +173,25 @@ class AdminProvider extends ChangeNotifier {
     }
   }
 
+  Future<bool> deleteUser({required String userId}) async {
+    _errorMessage = null;
+    _isLoading = true;
+    notifyListeners();
+    try {
+      await _adminService.deleteUser(userId: userId);
+      _users = _users.where((u) => u.id != userId).toList(growable: false);
+      _dashboard = await _adminService.fetchDashboard();
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (error) {
+      _errorMessage = _mapError(error);
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
   void clearError() {
     _errorMessage = null;
     notifyListeners();
@@ -218,6 +237,16 @@ class AdminProvider extends ChangeNotifier {
           return tr(
             'لا يمكنك تعطيل حسابك الحالي.',
             'Vous ne pouvez pas desactiver votre propre compte.',
+          );
+        case 'cannot-delete-admin':
+          return tr(
+            'لا يمكن حذف حساب الأدمن.',
+            'Impossible de supprimer le compte admin.',
+          );
+        case 'cannot-delete-self':
+          return tr(
+            'لا يمكنك حذف حسابك الحالي.',
+            'Vous ne pouvez pas supprimer votre propre compte.',
           );
         case 'user-not-found':
           return tr('المستخدم غير موجود.', 'Utilisateur introuvable.');

@@ -88,6 +88,16 @@ class ApiService {
     );
   }
 
+  Future<dynamic> delete(String path) async {
+    logResolvedBaseUrl();
+    return _sendRequest(
+      () => _client.delete(
+        _uri(path),
+        headers: _authHeaders(),
+      ),
+    );
+  }
+
   Future<dynamic> postMultipart({
     required String path,
     required String fileField,

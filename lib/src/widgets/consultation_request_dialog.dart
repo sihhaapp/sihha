@@ -289,9 +289,7 @@ Future<ConsultationRequestInput?> showConsultationRequestDialog({
     },
   );
 
-  otherNameController.dispose();
-  ageController.dispose();
-  weightController.dispose();
-  symptomsController.dispose();
+  // ملاحظة: لا نَتخلّص من الـ controllers هنا لتجنب استثناءات التركيز المتأخرة
+  // عند إغلاق الـ bottom sheet. مدة حياة الـ sheet قصيرة، والتسريب هنا ضئيل.
   return result;
 }

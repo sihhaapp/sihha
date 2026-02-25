@@ -155,6 +155,7 @@ async function initDb(databasePath) {
   await ensureUsersAdminColumns(db);
   await ensureAnalyticsTables(db);
   await ensureConsultationRequestColumns(db);
+  await ensureRoomsClosedColumn(db);
 
   return db;
 }
@@ -277,6 +278,14 @@ async function ensureConsultationRequestColumns(db) {
     CREATE INDEX IF NOT EXISTS idx_consult_req_patient_status
       ON consultation_requests(patient_id, status, updated_at DESC);
   `);
+}
+
+async function ensureRoomsClosedColumn(db) {
+  const columns = await db.all("PRAGMA table_info(rooms)");
+  const hasClosed = columns.some((c) => c.name === "is_closed");
+  if (!hasClosed) {
+    await db.exec("ALTER TABLE rooms ADD COLUMN is_closed INTEGER NOT NULL DEFAULT 0;");
+  }
 }
 
 module.exports = {

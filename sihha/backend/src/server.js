@@ -158,6 +158,7 @@ function mapRoomRow(row) {
     unreadCount: Number(row.unread_count || 0),
     createdAt: row.created_at,
     lastUpdatedAt: row.last_updated_at,
+    isClosed: row.is_closed === 1,
   };
 }
 
@@ -385,6 +386,18 @@ async function createOrGetRoomForUsers(patient, doctor) {
   const roomId = buildRoomId(patient.id, doctor.id);
   const existing = await getRoomWithPhotos(roomId);
   if (existing) {
+    if (existing.is_closed === 1 || existing.is_closed === true) {
+      const now = toIsoNow();
+      await db.run(
+        `UPDATE rooms
+         SET is_closed = 0,
+             last_updated_at = ?
+         WHERE id = ?`,
+        now,
+        roomId,
+      );
+      return getRoomWithPhotos(roomId);
+    }
     return existing;
   }
 
@@ -468,6 +481,51 @@ async function listConsultationRequestsInboxForDoctor(doctorId) {
     ORDER BY datetime(cr.updated_at) DESC`,
     doctorId,
     CONSULTATION_STATUS_PENDING,
+  );
+}
+
+async function getConsultationRequestByRoom(room) {
+  const byLinked = await db.get(
+    `SELECT
+      cr.*,
+      p.name AS patient_name,
+      p.photo_url AS patient_photo_url,
+      d.name AS target_doctor_name,
+      d.photo_url AS target_doctor_photo_url,
+      rd.name AS responded_by_doctor_name,
+      td.name AS transferred_by_doctor_name
+    FROM consultation_requests cr
+    JOIN users p ON p.id = cr.patient_id
+    JOIN users d ON d.id = cr.target_doctor_id
+    LEFT JOIN users rd ON rd.id = cr.responded_by_doctor_id
+    LEFT JOIN users td ON td.id = cr.transferred_by_doctor_id
+    WHERE cr.linked_room_id = ?
+    ORDER BY datetime(cr.updated_at) DESC
+    LIMIT 1`,
+    room.id,
+  );
+  if (byLinked) return byLinked;
+
+  return db.get(
+    `SELECT
+      cr.*,
+      p.name AS patient_name,
+      p.photo_url AS patient_photo_url,
+      d.name AS target_doctor_name,
+      d.photo_url AS target_doctor_photo_url,
+      rd.name AS responded_by_doctor_name,
+      td.name AS transferred_by_doctor_name
+    FROM consultation_requests cr
+    JOIN users p ON p.id = cr.patient_id
+    JOIN users d ON d.id = cr.target_doctor_id
+    LEFT JOIN users rd ON rd.id = cr.responded_by_doctor_id
+    LEFT JOIN users td ON td.id = cr.transferred_by_doctor_id
+    WHERE cr.patient_id = ?
+      AND cr.target_doctor_id = ?
+    ORDER BY datetime(cr.updated_at) DESC
+    LIMIT 1`,
+    room.patient_id,
+    room.doctor_id,
   );
 }
 
@@ -1176,6 +1234,31 @@ app.post("/api/admin/users/:userId/reset-password", requireAuth, requireAdmin, a
   return res.status(204).send();
 });
 
+app.delete("/api/admin/users/:userId", requireAuth, requireAdmin, async (req, res) => {
+  const userId = String(req.params.userId || "").trim();
+  if (!userId) {
+    return apiError(res, 400, "user-id-required", "userId is required.");
+  }
+
+  if (userId === req.authUser.id) {
+    return apiError(res, 403, "cannot-delete-self", "You cannot delete your own account.");
+  }
+
+  const user = await db.get(
+    "SELECT id, phone_number FROM users WHERE id = ?",
+    userId,
+  );
+  if (!user) {
+    return apiError(res, 404, "user-not-found", "User not found.");
+  }
+  if (user.phone_number === ADMIN_DISPLAY_PHONE) {
+    return apiError(res, 403, "cannot-delete-admin", "Admin account cannot be deleted.");
+  }
+
+  await db.run("DELETE FROM users WHERE id = ?", userId);
+  return res.status(204).send();
+});
+
 app.put("/api/users/me/doctor-profile", requireAuth, async (req, res) => {
   if (req.authUser.role !== "doctor") {
     return apiError(res, 403, "forbidden", "Only doctors can update this profile.");
@@ -1309,7 +1392,7 @@ app.post("/api/consultation-requests", requireAuth, async (req, res) => {
   }
 
   const existingRoom = await getRoomWithPhotos(buildRoomId(patient.id, doctor.id));
-  if (existingRoom) {
+  if (existingRoom && existingRoom.is_closed !== 1) {
     return apiError(
       res,
       409,
@@ -1397,10 +1480,10 @@ app.post("/api/consultation-requests/:requestId/accept", requireAuth, async (req
   await db.run(
     `UPDATE consultation_requests
      SET status = ?,
-         linked_room_id = ?,
-         responded_at = ?,
-         responded_by_doctor_id = ?,
-         updated_at = ?
+        linked_room_id = ?,
+        responded_at = ?,
+        responded_by_doctor_id = ?,
+        updated_at = ?
      WHERE id = ?`,
     CONSULTATION_STATUS_ACCEPTED,
     room.id,
@@ -1408,6 +1491,14 @@ app.post("/api/consultation-requests/:requestId/accept", requireAuth, async (req
     req.authUser.id,
     now,
     requestRow.id,
+  );
+  await db.run(
+    `UPDATE rooms
+     SET is_closed = 0,
+         last_updated_at = ?
+     WHERE id = ?`,
+    now,
+    room.id,
   );
 
   const updated = await getConsultationRequestWithDetailsById(requestRow.id);
@@ -1530,6 +1621,79 @@ app.post("/api/consultation-requests/:requestId/transfer", requireAuth, async (r
   return res.json({ request: mapConsultationRequestRow(updated) });
 });
 
+app.get("/api/rooms/:roomId/consultation-request", requireAuth, async (req, res) => {
+  const room = await db.get("SELECT * FROM rooms WHERE id = ?", req.params.roomId);
+  if (!ensureParticipant(room, req.authUser.id)) {
+    return apiError(res, 403, "forbidden", "No access to this room.");
+  }
+  const requestRow = await getConsultationRequestByRoom(room);
+  if (!requestRow) {
+    return res.json({ request: null });
+  }
+  return res.json({ request: mapConsultationRequestRow(requestRow) });
+});
+
+app.put("/api/consultation-requests/:requestId", requireAuth, async (req, res) => {
+  if (req.authUser.role !== "doctor") {
+    return apiError(res, 403, "forbidden", "Only doctors can update consultation requests.");
+  }
+  const requestRow = await getConsultationRequestWithDetailsById(req.params.requestId);
+  if (!requestRow) {
+    return apiError(res, 404, "consultation-request-not-found", "Consultation request not found.");
+  }
+  if (requestRow.target_doctor_id !== req.authUser.id) {
+    return apiError(res, 403, "forbidden", "No access to this consultation request.");
+  }
+  if (requestRow.status === CONSULTATION_STATUS_REJECTED) {
+    return apiError(res, 409, "consultation-request-rejected", "Cannot update a rejected request.");
+  }
+
+  const normalized = normalizeConsultationPayload(
+    {
+      doctorId: requestRow.target_doctor_id,
+      subjectType: req.body.subjectType ?? requestRow.subject_type,
+      subjectName: req.body.subjectName ?? requestRow.subject_name,
+      ageYears: req.body.ageYears ?? requestRow.age_years,
+      gender: req.body.gender ?? requestRow.gender,
+      weightKg: req.body.weightKg ?? requestRow.weight_kg,
+      stateCode: req.body.stateCode ?? requestRow.state_code,
+      spokenLanguage: req.body.spokenLanguage ?? requestRow.spoken_language,
+      symptoms: req.body.symptoms ?? requestRow.symptoms,
+    },
+    { id: requestRow.patient_id, name: requestRow.patient_name },
+  );
+  if (normalized.error) {
+    return apiError(res, 400, normalized.error, normalized.message);
+  }
+
+  const now = toIsoNow();
+  await db.run(
+    `UPDATE consultation_requests
+       SET subject_type = ?,
+           subject_name = ?,
+           age_years = ?,
+           gender = ?,
+           weight_kg = ?,
+           state_code = ?,
+           spoken_language = ?,
+           symptoms = ?,
+           updated_at = ?
+     WHERE id = ?`,
+    normalized.subjectType,
+    normalized.subjectName,
+    normalized.ageYears,
+    normalized.gender,
+    normalized.weightKg,
+    normalized.stateCode,
+    normalized.spokenLanguage,
+    normalized.symptoms,
+    now,
+    requestRow.id,
+  );
+  const updated = await getConsultationRequestWithDetailsById(requestRow.id);
+  return res.json({ request: mapConsultationRequestRow(updated) });
+});
+
 app.get("/api/rooms", requireAuth, async (req, res) => {
   const rows = await listRoomsWithPhotosByUser(req.authUser.id, req.authUser.role);
   return res.json({ rooms: rows.map(mapRoomRow) });
@@ -1594,6 +1758,9 @@ app.post("/api/rooms/:roomId/messages/text", requireAuth, async (req, res) => {
   const room = await db.get("SELECT * FROM rooms WHERE id = ?", req.params.roomId);
   if (!ensureParticipant(room, req.authUser.id)) {
     return apiError(res, 403, "forbidden", "No access to this room.");
+  }
+  if (room.is_closed === 1 && room.patient_id === req.authUser.id) {
+    return apiError(res, 403, "room-closed", "Room is closed. Please request a new consultation.");
   }
 
   const text = String(req.body.text || "").trim();
@@ -1666,6 +1833,9 @@ app.post("/api/rooms/:roomId/messages/audio", requireAuth, async (req, res) => {
   if (!ensureParticipant(room, req.authUser.id)) {
     return apiError(res, 403, "forbidden", "No access to this room.");
   }
+  if (room.is_closed === 1 && room.patient_id === req.authUser.id) {
+    return apiError(res, 403, "room-closed", "Room is closed. Please request a new consultation.");
+  }
 
   const audioUrl = String(req.body.audioUrl || "").trim();
   const durationSeconds = Math.max(1, Math.floor(Number(req.body.durationSeconds || 1)));
@@ -1702,6 +1872,9 @@ app.post("/api/rooms/:roomId/messages/image", requireAuth, async (req, res) => {
   const room = await db.get("SELECT * FROM rooms WHERE id = ?", req.params.roomId);
   if (!ensureParticipant(room, req.authUser.id)) {
     return apiError(res, 403, "forbidden", "No access to this room.");
+  }
+  if (room.is_closed === 1 && room.patient_id === req.authUser.id) {
+    return apiError(res, 403, "room-closed", "Room is closed. Please request a new consultation.");
   }
 
   const imageUrl = String(req.body.imageUrl || "").trim();
@@ -1747,6 +1920,9 @@ app.post("/api/rooms/:roomId/live/request", requireAuth, async (req, res) => {
   const room = await db.get("SELECT * FROM rooms WHERE id = ?", req.params.roomId);
   if (!ensureParticipant(room, req.authUser.id)) {
     return apiError(res, 403, "forbidden", "No access to this room.");
+  }
+  if (room.is_closed === 1 && room.patient_id === req.authUser.id) {
+    return apiError(res, 403, "room-closed", "Room is closed. Please request a new consultation.");
   }
 
   await updateRoomPresence(req.params.roomId, req.authUser.id, true);
@@ -1833,6 +2009,9 @@ app.post("/api/rooms/:roomId/live/accept", requireAuth, async (req, res) => {
   if (!ensureParticipant(room, req.authUser.id)) {
     return apiError(res, 403, "forbidden", "No access to this room.");
   }
+  if (room.is_closed === 1 && room.patient_id === req.authUser.id) {
+    return apiError(res, 403, "room-closed", "Room is closed. Please request a new consultation.");
+  }
 
   const current = await getLiveSession(req.params.roomId);
   if (current.status !== LIVE_STATUS_PENDING || !current.requestedBy) {
@@ -1901,6 +2080,9 @@ app.post("/api/rooms/:roomId/live/stop", requireAuth, async (req, res) => {
   if (!ensureParticipant(room, req.authUser.id)) {
     return apiError(res, 403, "forbidden", "No access to this room.");
   }
+  if (room.is_closed === 1 && room.patient_id === req.authUser.id) {
+    return apiError(res, 403, "room-closed", "Room is closed. Please request a new consultation.");
+  }
 
   const now = toIsoNow();
   await upsertLiveSession(req.params.roomId, LIVE_STATUS_IDLE, {
@@ -1918,6 +2100,30 @@ app.post("/api/rooms/:roomId/live/stop", requireAuth, async (req, res) => {
 
   const session = await getLiveSession(req.params.roomId);
   return res.status(201).json({ session, message: mapMessageRow(messageRow) });
+});
+
+app.post("/api/rooms/:roomId/close", requireAuth, async (req, res) => {
+  const room = await db.get("SELECT * FROM rooms WHERE id = ?", req.params.roomId);
+  if (!room) {
+    return apiError(res, 404, "room-not-found", "Room not found.");
+  }
+  if (room.doctor_id !== req.authUser.id) {
+    return apiError(res, 403, "forbidden", "Only the doctor can close this room.");
+  }
+
+  const now = toIsoNow();
+  await db.run(
+    `UPDATE rooms
+     SET is_closed = 1,
+         last_message = ?,
+         last_updated_at = ?
+     WHERE id = ?`,
+    "[consultation closed]",
+    now,
+    room.id,
+  );
+  const updated = await getRoomWithPhotos(room.id);
+  return res.json({ room: mapRoomRow(updated) });
 });
 
 app.post("/api/rooms/:roomId/live/join", requireAuth, async (req, res) => {
@@ -1982,6 +2188,9 @@ app.post("/api/rooms/:roomId/messages/live", requireAuth, async (req, res) => {
   const room = await db.get("SELECT * FROM rooms WHERE id = ?", req.params.roomId);
   if (!ensureParticipant(room, req.authUser.id)) {
     return apiError(res, 403, "forbidden", "No access to this room.");
+  }
+  if (room.is_closed === 1 && room.patient_id === req.authUser.id) {
+    return apiError(res, 403, "room-closed", "Room is closed. Please request a new consultation.");
   }
 
   const content = String(req.body.content || "").trim();

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../models/app_user.dart';
 import '../models/chat_room.dart';
+import '../models/consultation_request.dart';
 import '../providers/app_settings_provider.dart';
 import '../providers/chat_provider.dart';
 import '../theme/sihha_theme.dart';
@@ -129,17 +130,122 @@ class _ChatListScreenState extends State<ChatListScreen> {
     }
   }
 
-  Future<void> _openRoom(ChatRoom room) async {
+  Future<void> _openRoom(ChatRoom room, {ConsultationRequest? initialConsultation}) async {
     await _stopIncomingRingtone();
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ChangeNotifierProvider<ChatProvider>.value(
           value: context.read<ChatProvider>(),
-          child: ChatScreen(room: room, currentUser: widget.currentUser),
+          child: ChatScreen(
+            room: room,
+            currentUser: widget.currentUser,
+            initialConsultation: initialConsultation,
+          ),
         ),
       ),
     );
+  }
+
+  Future<void> _acceptConsultation(String requestId) async {
+    final provider = context.read<ChatProvider>();
+    final result = await provider.acceptConsultationRequest(requestId);
+    if (!mounted) return;
+    if (result == null) {
+      final error = provider.errorMessage;
+      if (error != null && error.isNotEmpty) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(error)));
+        provider.clearError();
+      }
+      return;
+    }
+    final room = result['room'] as ChatRoom?;
+    final request = result['request'] as ConsultationRequest?;
+    if (room != null) {
+      await _openRoom(room, initialConsultation: request);
+    }
+  }
+
+  Future<void> _rejectConsultation(String requestId) async {
+    final provider = context.read<ChatProvider>();
+    final tr = context.read<AppSettingsProvider>().tr;
+    final result = await provider.rejectConsultationRequest(requestId);
+    if (!mounted) return;
+    if (result == null) {
+      final error = provider.errorMessage;
+      if (error != null && error.isNotEmpty) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(error)));
+        provider.clearError();
+      }
+      return;
+    }
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(tr('تم رفض الطلب.', 'Demande rejetée.'))));
+  }
+
+  Future<void> _transferConsultation(String requestId) async {
+    final provider = context.read<ChatProvider>();
+    final tr = context.read<AppSettingsProvider>().tr;
+
+    // حوار إدخال هوية الطبيب الجديد
+    final controller = TextEditingController();
+    final newDoctorId = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(tr('تحويل الطلب لطبيب آخر', 'Transférer vers un autre médecin')),
+          content: TextField(
+            controller: controller,
+            decoration: InputDecoration(
+              labelText: tr('معرّف الطبيب (id)', 'ID du médecin'),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(tr('إلغاء', 'Annuler')),
+            ),
+            FilledButton(
+              onPressed: () {
+                final value = controller.text.trim();
+                if (value.isEmpty) return;
+                Navigator.of(dialogContext).pop(value);
+              },
+              child: Text(tr('تحويل', 'Transférer')),
+            ),
+          ],
+        );
+      },
+    );
+
+    controller.dispose();
+    if (newDoctorId == null || newDoctorId.isEmpty) return;
+
+    final result = await provider.transferConsultationRequest(
+      requestId: requestId,
+      doctorId: newDoctorId,
+    );
+    if (!mounted) return;
+
+    if (result == null) {
+      final error = provider.errorMessage;
+      if (error != null && error.isNotEmpty) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(error)));
+        provider.clearError();
+      }
+      return;
+    }
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(tr('تم تحويل الطلب.', 'Demande transférée.'))));
   }
 
   @override
@@ -197,6 +303,15 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   currentUser: widget.currentUser,
                   openingDoctorId: _openingDoctorId,
                   onDoctorTap: _openChatWithDoctor,
+                ),
+              if (widget.currentUser.role == UserRole.doctor)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  child: _DoctorConsultationInbox(
+                    onAccept: _acceptConsultation,
+                    onReject: _rejectConsultation,
+                    onTransfer: _transferConsultation,
+                  ),
                 ),
               Expanded(
                 child: StreamBuilder<List<ChatRoom>>(
@@ -513,6 +628,161 @@ class _DoctorsQuickStart extends StatelessWidget {
           );
         },
       ),
+    );
+  }
+}
+
+class _DoctorConsultationInbox extends StatelessWidget {
+  const _DoctorConsultationInbox({
+    required this.onAccept,
+    required this.onReject,
+    required this.onTransfer,
+  });
+
+  final Future<void> Function(String requestId) onAccept;
+  final Future<void> Function(String requestId) onReject;
+  final Future<void> Function(String requestId) onTransfer;
+
+  @override
+  Widget build(BuildContext context) {
+    final chatProvider = context.watch<ChatProvider>();
+    final tr = context.watch<AppSettingsProvider>().tr;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return StreamBuilder<List<ConsultationRequest>>(
+      stream: chatProvider.doctorConsultationInboxStream(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Container(
+            padding: const EdgeInsets.all(12),
+            decoration: sihhaGlassCardDecoration(context: context),
+            child: const Row(
+              children: [
+                SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                SizedBox(width: 10),
+                Text('...'),
+              ],
+            ),
+          );
+        }
+
+        final requests = snapshot.data ?? const <ConsultationRequest>[];
+        if (requests.isEmpty) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: sihhaGlassCardDecoration(context: context),
+            child: Text(
+              tr('لا توجد طلبات استشارة معلقة حالياً.', 'Aucune demande en attente.'),
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          );
+        }
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: sihhaGlassCardDecoration(context: context),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                tr('طلبات الاستشارة الواردة', 'Demandes de consultation'),
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 10),
+              ...requests.map((req) {
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: isDark
+                        ? const Color(0xFF141D28)
+                        : Colors.white.withValues(alpha: 0.9),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.04),
+                        blurRadius: 10,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        req.patientName,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        tr(
+                          'المستفيد: ${req.subjectName}',
+                          'Bénéficiaire : ${req.subjectName}',
+                        ),
+                        style: const TextStyle(fontSize: 12.5),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        tr(
+                          'العمر: ${req.ageYears}، الجنس: ${req.gender == RequestGender.male ? 'ذكر' : 'أنثى'}، الوزن: ${req.weightKg} كغ',
+                          'Âge: ${req.ageYears}, sexe: ${req.gender == RequestGender.male ? 'Homme' : 'Femme'}, poids: ${req.weightKg} kg',
+                        ),
+                        style: const TextStyle(fontSize: 12.5),
+                      ),
+                      Text(
+                        tr(
+                          'الأعراض: ${req.symptoms}',
+                          'Symptômes: ${req.symptoms}',
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12.5),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: () => onAccept(req.id),
+                              child: Text(tr('قبول', 'Accepter')),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => onReject(req.id),
+                              child: Text(tr('رفض', 'Rejeter')),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                side: BorderSide(color: SihhaPalette.secondary),
+                              ),
+                              onPressed: () => onTransfer(req.id),
+                              child: Text(tr('تحويل', 'Transférer')),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ),
+        );
+      },
     );
   }
 }

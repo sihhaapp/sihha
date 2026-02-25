@@ -12,6 +12,7 @@ class ChatRoom {
     required this.unreadCount,
     required this.createdAt,
     required this.lastUpdatedAt,
+    this.isClosed = false,
   });
 
   final String id;
@@ -26,6 +27,7 @@ class ChatRoom {
   final int unreadCount;
   final DateTime createdAt;
   final DateTime lastUpdatedAt;
+  final bool isClosed;
 
   Map<String, dynamic> toMap() {
     return {
@@ -60,6 +62,9 @@ class ChatRoom {
       unreadCount: (map['unreadCount'] as num?)?.toInt() ?? 0,
       createdAt: _parseDate(map['createdAt']),
       lastUpdatedAt: _parseDate(map['lastUpdatedAt']),
+      isClosed: map['isClosed'] == true ||
+          map['is_closed'] == 1 ||
+          (map['isClosed'] is num && (map['isClosed'] as num) != 0),
     );
   }
 }

@@ -11,10 +11,12 @@ import 'package:provider/provider.dart';
 import '../models/app_user.dart';
 import '../models/chat_message.dart';
 import '../models/chat_room.dart';
+import '../models/consultation_request.dart';
 import '../providers/app_settings_provider.dart';
 import '../providers/chat_provider.dart';
 import '../theme/sihha_theme.dart';
 import '../widgets/message_bubble.dart';
+import '../widgets/consultation_request_dialog.dart';
 import 'livekit_call_screen.dart';
 
 enum _CallIntent { voice }
@@ -32,10 +34,16 @@ class _PendingImageMessage {
 }
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, required this.room, required this.currentUser});
+  const ChatScreen({
+    super.key,
+    required this.room,
+    required this.currentUser,
+    this.initialConsultation,
+  });
 
   final ChatRoom room;
   final AppUser currentUser;
+  final ConsultationRequest? initialConsultation;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -67,6 +75,9 @@ class _ChatScreenState extends State<ChatScreen>
   _CallIntent? _outgoingIntent;
   bool _launchingCall = false;
   bool _isIncomingRinging = false;
+  ConsultationRequest? _consultation;
+  bool _loadingConsultation = false;
+  bool _roomClosed = false;
 
   bool get _incomingRequest =>
       _liveStatus == 'pending' &&
@@ -75,12 +86,14 @@ class _ChatScreenState extends State<ChatScreen>
   bool get _outgoingRequest =>
       _liveStatus == 'pending' && _requestedBy == widget.currentUser.id;
   bool get _activeSession => _liveStatus == 'active';
+  bool _consultationSectionVisible() => _loadingConsultation || _consultation != null;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _chatProvider = context.read<ChatProvider>();
+    _roomClosed = widget.room.isClosed;
     _bgController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 10),
@@ -93,6 +106,7 @@ class _ChatScreenState extends State<ChatScreen>
       widget.room.id,
       liveMode: true,
     );
+    _loadConsultation();
     unawaited(_chatProvider.setPresence(roomId: widget.room.id, active: true));
     _inputFocusNode.addListener(() {
       if (_inputFocusNode.hasFocus) {
@@ -147,6 +161,36 @@ class _ChatScreenState extends State<ChatScreen>
     unawaited(_stopIncomingRingtone());
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  Future<void> _loadConsultation() async {
+    final cached = _chatProvider.getCachedConsultation(widget.room.id);
+    if (cached != null && mounted) {
+      setState(() {
+        _consultation = cached;
+        _loadingConsultation = true;
+      });
+    } else {
+      setState(() => _loadingConsultation = true);
+    }
+    final initial = widget.initialConsultation;
+    if (initial != null) {
+      _consultation = initial;
+      _chatProvider.rememberConsultation(widget.room.id, initial);
+      setState(() => _loadingConsultation = false);
+      return;
+    }
+    final req =
+        await _chatProvider.fetchConsultationRequestByRoom(widget.room.id);
+    if (!mounted) return;
+    setState(() {
+      // احتفظ بالقيمة السابقة إذا لم يرجع الخادم شيئًا
+      _consultation = req ?? _consultation;
+      if (_consultation != null) {
+        _chatProvider.rememberConsultation(widget.room.id, _consultation!);
+      }
+      _loadingConsultation = false;
+    });
   }
 
   void _startStatusPolling() {
@@ -205,9 +249,185 @@ class _ChatScreenState extends State<ChatScreen>
     }
   }
 
+  Future<void> _openEditConsultation() async {
+    if (_consultation == null || widget.currentUser.role != UserRole.doctor) return;
+    final tr = context.read<AppSettingsProvider>().tr;
+    final c = _consultation!;
+    final subjectController = TextEditingController(text: c.subjectName);
+    final ageController = TextEditingController(text: c.ageYears.toString());
+    final weightController = TextEditingController(text: c.weightKg.toString());
+    final symptomsController = TextEditingController(text: c.symptoms);
+    RequestGender gender = c.gender;
+    RequestSubjectType subjectType = c.subjectType;
+    SpokenLanguage language = c.spokenLanguage;
+
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 12,
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+          ),
+          child: StatefulBuilder(
+            builder: (context, setSheet) {
+              return SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tr('تعديل بيانات الاستشارة', 'Modifier la consultation'),
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<RequestSubjectType>(
+                      value: subjectType,
+                      decoration: InputDecoration(labelText: tr('المستفيد', 'Bénéficiaire')),
+                      items: [
+                        DropdownMenuItem(
+                          value: RequestSubjectType.self,
+                          child: Text(tr('المريض نفسه', 'Patient lui-même')),
+                        ),
+                        DropdownMenuItem(
+                          value: RequestSubjectType.other,
+                          child: Text(tr('شخص آخر', 'Autre personne')),
+                        ),
+                      ],
+                      onChanged: (v) => setSheet(() => subjectType = v ?? subjectType),
+                    ),
+                    TextField(
+                      controller: subjectController,
+                      decoration: InputDecoration(
+                        labelText: tr('اسم المريض/المستفيد', 'Nom du bénéficiaire'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: ageController,
+                            keyboardType: TextInputType.number,
+                            decoration: InputDecoration(labelText: tr('العمر', 'Âge')),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: DropdownButtonFormField<RequestGender>(
+                            value: gender,
+                            decoration: InputDecoration(labelText: tr('الجنس', 'Sexe')),
+                            items: RequestGender.values
+                                .map(
+                                  (g) => DropdownMenuItem(
+                                    value: g,
+                                    child: Text(g == RequestGender.male ? tr('ذكر', 'Homme') : tr('أنثى', 'Femme')),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (v) => setSheet(() => gender = v ?? gender),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: weightController,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: InputDecoration(labelText: tr('الوزن (كغ)', 'Poids (kg)')),
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<SpokenLanguage>(
+                      value: language,
+                      decoration: InputDecoration(labelText: tr('اللغة', 'Langue')),
+                      items: SpokenLanguage.values
+                          .map(
+                            (l) => DropdownMenuItem(
+                              value: l,
+                              child: Text(
+                                l == SpokenLanguage.ar
+                                    ? tr('عربي', 'Arabe')
+                                    : l == SpokenLanguage.fr
+                                        ? tr('فرنسي', 'Français')
+                                        : tr('مزدوج', 'Bilingue'),
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) => setSheet(() => language = v ?? language),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: symptomsController,
+                      minLines: 3,
+                      maxLines: 5,
+                      decoration: InputDecoration(labelText: tr('الأعراض', 'Symptômes')),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(sheetContext).pop(false),
+                            child: Text(tr('إلغاء', 'Annuler')),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () => Navigator.of(sheetContext).pop(true),
+                            child: Text(tr('حفظ', 'Enregistrer')),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+
+    if (saved != true) return;
+
+    final age = int.tryParse(ageController.text.trim()) ?? c.ageYears;
+    final weight = double.tryParse(weightController.text.trim()) ?? c.weightKg;
+    final payload = <String, dynamic>{
+      'subjectType': subjectType.value,
+      'subjectName': subjectController.text.trim().isEmpty
+          ? c.subjectName
+          : subjectController.text.trim(),
+      'ageYears': age,
+      'gender': gender.value,
+      'weightKg': weight,
+      'stateCode': c.stateCode,
+      'spokenLanguage': language.value,
+      'symptoms': symptomsController.text.trim().isEmpty
+          ? c.symptoms
+          : symptomsController.text.trim(),
+    };
+
+    final updated = await _chatProvider.updateConsultationRequest(
+      requestId: c.id,
+      payload: payload,
+    );
+    if (!mounted) return;
+    if (updated != null) {
+      setState(() => _consultation = updated);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(tr('تم تحديث البيانات.', 'Données mises à jour.'))));
+    }
+  }
+
   Future<void> _sendText() async {
     final text = _textController.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || _roomClosed) return;
     await context.read<ChatProvider>().sendTextMessage(
       roomId: widget.room.id,
       senderId: widget.currentUser.id,
@@ -218,6 +438,7 @@ class _ChatScreenState extends State<ChatScreen>
   }
 
   Future<void> _pickAndSendImage() async {
+    if (_roomClosed) return;
     final picked = await _imagePicker.pickImage(
       source: ImageSource.gallery,
       imageQuality: 88,
@@ -252,6 +473,62 @@ class _ChatScreenState extends State<ChatScreen>
     if (!mounted) return;
     setState(() => _pendingImages.removeWhere((p) => p.id == pending.id));
     _scrollToBottomRobust();
+  }
+
+  Future<void> _closeRoom() async {
+    final tr = context.read<AppSettingsProvider>().tr;
+    final ok = await _chatProvider.closeRoom(widget.room.id);
+    if (!mounted) return;
+    if (ok) {
+      setState(() => _roomClosed = true);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(tr('تم إغلاق الاستشارة.', 'Consultation clôturée.'))));
+    } else {
+      _showErrorIfAny();
+    }
+  }
+
+  Future<void> _startNewConsultationRequest() async {
+    final tr = context.read<AppSettingsProvider>().tr;
+    final patient = widget.currentUser;
+    if (patient.role != UserRole.patient) return;
+
+    final doctor = AppUser(
+      id: widget.room.doctorId,
+      name: widget.room.doctorName,
+      phoneNumber: '',
+      role: UserRole.doctor,
+      createdAt: DateTime.now(),
+      photoUrl: widget.room.doctorPhotoUrl,
+    );
+
+    final input = await showConsultationRequestDialog(
+      context: context,
+      patient: patient,
+      doctor: doctor,
+    );
+    if (input == null || !mounted) return;
+
+    final req = await _chatProvider.submitConsultationRequest(
+      doctorId: doctor.id,
+      subjectType: input.subjectType,
+      subjectName: input.subjectName,
+      ageYears: input.ageYears,
+      gender: input.gender,
+      weightKg: input.weightKg,
+      stateCode: input.stateCode,
+      spokenLanguage: input.spokenLanguage,
+      symptoms: input.symptoms,
+    );
+    if (!mounted) return;
+    if (req != null) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(tr('تم إرسال طلب جديد للطبيب.', 'Nouvelle demande envoyée.'))));
+    } else {
+      _showErrorIfAny();
+    }
   }
 
   Future<void> _requestCall() async {
@@ -549,13 +826,35 @@ class _ChatScreenState extends State<ChatScreen>
                 ),
               ],
             ),
-            actions: const [],
+            actions: [
+              if (widget.currentUser.role == UserRole.doctor)
+                IconButton(
+                  tooltip: _roomClosed
+                      ? tr('الاستشارة مغلقة', 'Consultation clôturée')
+                      : tr('إغلاق الاستشارة', 'Clôturer la consultation'),
+                  onPressed: _roomClosed ? null : _closeRoom,
+                  icon: Icon(
+                    _roomClosed ? Icons.lock_rounded : Icons.lock_outline_rounded,
+                  ),
+                ),
+            ],
           ),
           body: Stack(
             children: [
               _Backdrop(controller: _bgController),
               Column(
                 children: [
+                  if (_consultationSectionVisible())
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+                      child: _ConsultationCard(
+                        consultation: _consultation,
+                        loading: _loadingConsultation,
+                        isDoctor: widget.currentUser.role == UserRole.doctor,
+                        tr: tr,
+                        onEdit: _openEditConsultation,
+                      ),
+                    ),
                   AnimatedSwitcher(
                     duration: const Duration(milliseconds: 260),
                     child: _buildCallPanel(peerName: peerName, tr: tr),
@@ -676,20 +975,29 @@ class _ChatScreenState extends State<ChatScreen>
                       },
                     ),
                   ),
-                  _WhatsAppComposerBar(
-                    tr: tr,
-                    controller: _textController,
-                    onSend: _sendText,
-                    onPickImage: _pickAndSendImage,
-                    onStartVoiceCall: _requestCall,
-                    canStartVoiceCall:
-                        !_incomingRequest &&
-                        !_outgoingRequest &&
-                        !_activeSession &&
-                        !_launchingCall,
-                    onInputTap: () => _scrollToBottomRobust(),
-                    inputFocusNode: _inputFocusNode,
-                  ),
+                  if (_roomClosed)
+                    _ClosedRoomPanel(
+                      tr: tr,
+                      isPatient: widget.currentUser.role == UserRole.patient,
+                      onNewRequest: widget.currentUser.role == UserRole.patient
+                          ? _startNewConsultationRequest
+                          : null,
+                    )
+                  else
+                    _WhatsAppComposerBar(
+                      tr: tr,
+                      controller: _textController,
+                      onSend: _sendText,
+                      onPickImage: _pickAndSendImage,
+                      onStartVoiceCall: _requestCall,
+                      canStartVoiceCall:
+                          !_incomingRequest &&
+                          !_outgoingRequest &&
+                          !_activeSession &&
+                          !_launchingCall,
+                      onInputTap: () => _scrollToBottomRobust(),
+                      inputFocusNode: _inputFocusNode,
+                    ),
                 ],
               ),
             ],
@@ -1331,6 +1639,176 @@ class _WhatsAppComposerBar extends StatelessWidget {
               );
             },
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConsultationCard extends StatelessWidget {
+  const _ConsultationCard({
+    required this.consultation,
+    required this.loading,
+    required this.isDoctor,
+    required this.tr,
+    required this.onEdit,
+  });
+
+  final ConsultationRequest? consultation;
+  final bool loading;
+  final bool isDoctor;
+  final String Function(String, String) tr;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: sihhaGlassCardDecoration(context: context),
+      child: loading
+          ? Row(
+              children: [
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 10),
+                Text(tr('جارِ تحميل بيانات الاستشارة...', 'Chargement...')),
+              ],
+            )
+          : (consultation == null
+              ? Text(
+                  tr('لا توجد بيانات استشارة مرتبطة بهذه المحادثة.', 'Aucune donnée de consultation.'),
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            tr('بيانات الاستشارة', 'Données de consultation'),
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        if (isDoctor)
+                          TextButton.icon(
+                            onPressed: onEdit,
+                            icon: const Icon(Icons.edit_rounded, size: 18),
+                            label: Text(tr('تعديل', 'Modifier')),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    _line(tr('المريض', 'Patient'), consultation!.patientName),
+                    _line(tr('المستفيد', 'Bénéficiaire'), consultation!.subjectName),
+                    _line(
+                      tr('العمر / الجنس', 'Âge / sexe'),
+                      '${consultation!.ageYears} / ${consultation!.gender == RequestGender.male ? tr('ذكر', 'Homme') : tr('أنثى', 'Femme')}',
+                    ),
+                    _line(tr('الوزن (كغ)', 'Poids (kg)'), consultation!.weightKg.toString()),
+                    _line(
+                      tr('اللغة', 'Langue'),
+                      consultation!.spokenLanguage == SpokenLanguage.ar
+                          ? tr('عربي', 'Arabe')
+                          : consultation!.spokenLanguage == SpokenLanguage.fr
+                              ? tr('فرنسي', 'Français')
+                              : tr('مزدوج', 'Bilingue'),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      tr('الأعراض', 'Symptômes'),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      consultation!.symptoms,
+                      style: TextStyle(
+                        color: isDark ? Colors.white70 : const Color(0xFF334155),
+                      ),
+                    ),
+                  ],
+                )),
+    );
+  }
+
+  Widget _line(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Text('$label: ',
+              style: const TextStyle(fontWeight: FontWeight.w700)),
+          Expanded(
+            child: Text(
+              value,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClosedRoomPanel extends StatelessWidget {
+  const _ClosedRoomPanel({
+    required this.tr,
+    required this.isPatient,
+    this.onNewRequest,
+  });
+
+  final String Function(String, String) tr;
+  final bool isPatient;
+  final VoidCallback? onNewRequest;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+      padding: const EdgeInsets.all(14),
+      decoration: sihhaGlassCardDecoration(context: context),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.lock_rounded, color: SihhaPalette.danger),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  tr('تم إغلاق هذه الاستشارة.', 'Cette consultation est clôturée.'),
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            isPatient
+                ? tr('لطلب التواصل مجدداً، أرسل طلب استشارة جديد لهذا الطبيب.',
+                    'Pour reprendre contact, envoyez une nouvelle demande de consultation à ce médecin.')
+                : tr('لا يمكن للمريض إرسال رسائل بعد الإغلاق.', 'Le patient ne peut plus envoyer de messages.'),
+            style: TextStyle(
+              color: isDark ? Colors.white70 : const Color(0xFF334155),
+            ),
+          ),
+          if (isPatient && onNewRequest != null) ...[
+            const SizedBox(height: 10),
+            FilledButton.icon(
+              onPressed: onNewRequest,
+              icon: const Icon(Icons.medical_services_outlined),
+              label: Text(tr('طلب استشارة جديدة', 'Nouvelle demande')),
+            ),
+          ],
         ],
       ),
     );

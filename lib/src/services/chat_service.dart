@@ -119,6 +119,35 @@ class ChatService {
     );
   }
 
+  Future<ConsultationRequest?> fetchConsultationRequestByRoom(String roomId) async {
+    final body = await _apiService.get('/rooms/$roomId/consultation-request');
+    final map = _readMap(body);
+    final reqRaw = map['request'];
+    if (reqRaw == null) return null;
+    return ConsultationRequest.fromMap(_readMap(reqRaw));
+  }
+
+  Future<ConsultationRequest?> updateConsultationRequest({
+    required String requestId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final body = await _apiService.put(
+      '/consultation-requests/$requestId',
+      body: payload,
+    );
+    final map = _readMap(body);
+    final reqRaw = map['request'];
+    if (reqRaw == null) return null;
+    return ConsultationRequest.fromMap(_readMap(reqRaw));
+  }
+
+  Future<ChatRoom> closeRoom(String roomId) async {
+    final body = await _apiService.post('/rooms/$roomId/close');
+    final map = _readMap(body);
+    final roomMap = _readMap(map['room']);
+    return ChatRoom.fromMap((roomMap['id'] as String?) ?? roomId, roomMap);
+  }
+
   Future<Map<String, dynamic>> acceptConsultationRequest(String requestId) async {
     final body = await _apiService.post('/consultation-requests/$requestId/accept');
     final map = _readMap(body);

@@ -33,11 +33,25 @@ class ChatProvider extends ChangeNotifier {
   String? _errorMessage;
   String? _activeAudioUrl;
   DateTime? _recordStartedAt;
+  final Map<String, ConsultationRequest> _consultationsByRoom =
+      <String, ConsultationRequest>{};
 
   bool get isRecording => _isRecording;
   bool get isBusy => _isBusy;
   String? get errorMessage => _errorMessage;
   String? get activeAudioUrl => _activeAudioUrl;
+  ConsultationRequest? getCachedConsultation(String roomId) =>
+      _consultationsByRoom[roomId];
+
+  void _cacheConsultation(String? roomId, ConsultationRequest request) {
+    final key = roomId ?? request.linkedRoomId;
+    if (key == null || key.isEmpty) return;
+    _consultationsByRoom[key] = request;
+  }
+
+  void rememberConsultation(String roomId, ConsultationRequest request) {
+    _cacheConsultation(roomId, request);
+  }
 
   Stream<List<AppUser>> doctorsStream() {
     return _chatService.doctorsStream();
@@ -155,6 +169,7 @@ class ChatProvider extends ChangeNotifier {
         ((response['room'] as Map<String, dynamic>?)?['id'] as String?) ?? '',
         response['room'] as Map<String, dynamic>,
       );
+      _cacheConsultation(room.id, request);
       return {'request': request, 'room': room};
     } catch (error) {
       _mapConsultationError(error);
@@ -180,10 +195,47 @@ class ChatProvider extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
     try {
-      return await _chatService.transferConsultationRequest(
+      final updated = await _chatService.transferConsultationRequest(
         requestId: requestId,
         doctorId: doctorId,
       );
+      if (updated != null) {
+        _cacheConsultation(updated.linkedRoomId, updated);
+      }
+      return updated;
+    } catch (error) {
+      _mapConsultationError(error);
+      return null;
+    }
+  }
+
+  Future<ConsultationRequest?> fetchConsultationRequestByRoom(String roomId) async {
+    try {
+      final req = await _chatService.fetchConsultationRequestByRoom(roomId);
+      if (req != null) {
+        _cacheConsultation(roomId, req);
+      }
+      return req ?? getCachedConsultation(roomId);
+    } catch (error) {
+      return getCachedConsultation(roomId);
+    }
+  }
+
+  Future<ConsultationRequest?> updateConsultationRequest({
+    required String requestId,
+    required Map<String, dynamic> payload,
+  }) async {
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      final updated = await _chatService.updateConsultationRequest(
+        requestId: requestId,
+        payload: payload,
+      );
+      if (updated != null) {
+        _cacheConsultation(updated.linkedRoomId, updated);
+      }
+      return updated;
     } catch (error) {
       _mapConsultationError(error);
       return null;
@@ -196,12 +248,16 @@ class ChatProvider extends ChangeNotifier {
     required String senderName,
     required String text,
   }) async {
-    await _chatService.sendTextMessage(
-      roomId: roomId,
-      senderId: senderId,
-      senderName: senderName,
-      text: text,
-    );
+    try {
+      await _chatService.sendTextMessage(
+        roomId: roomId,
+        senderId: senderId,
+        senderName: senderName,
+        text: text,
+      );
+    } catch (error) {
+      _mapRoomError(error);
+    }
   }
 
   Future<bool> sendImageMessage({
@@ -216,11 +272,8 @@ class ChatProvider extends ChangeNotifier {
       final imageUrl = await _chatService.uploadImageFile(file: imageFile);
       await _chatService.sendImageMessage(roomId: roomId, imageUrl: imageUrl);
       return true;
-    } catch (_) {
-      _errorMessage = AppSettingsProvider.trGlobal(
-        'تعذر إرسال الصورة.',
-        'Impossible d\'envoyer l\'image.',
-      );
+    } catch (error) {
+      _mapRoomError(error);
       return false;
     } finally {
       _isBusy = false;
@@ -417,11 +470,31 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _mapRoomError(Object error) {
+    if (error is ApiException && error.code == "room-closed") {
+      _errorMessage = AppSettingsProvider.trGlobal(
+        'تم إغلاق هذه الاستشارة. أرسل طلباً جديداً للطبيب.',
+        'Cette consultation est cloturee. Envoyez une nouvelle demande au medecin.',
+      );
+    } else {
+      _errorMessage = AppSettingsProvider.trGlobal(
+        'تعذر إرسال الرسالة.',
+        "Impossible d'envoyer le message.",
+      );
+    }
+    notifyListeners();
+  }
+
   void _mapConsultationError(Object error) {
     if (error is ApiException && error.code == "consultation-request-pending") {
       _errorMessage = AppSettingsProvider.trGlobal(
         'لديك طلب استشارة قيد الانتظار مع هذا الطبيب.',
         'Vous avez deja une demande en attente avec ce medecin.',
+      );
+    } else if (error is ApiException && error.code == "consultation-request-exists") {
+      _errorMessage = AppSettingsProvider.trGlobal(
+        'هناك استشارة قائمة أو مقبولة مع هذا الطبيب.',
+        'Une consultation existe deja avec ce medecin.',
       );
     } else if (error is ApiException && error.code == "consultation-room-exists") {
       _errorMessage = AppSettingsProvider.trGlobal(
@@ -504,11 +577,8 @@ class ChatProvider extends ChangeNotifier {
         audioUrl: url,
         durationSeconds: duration,
       );
-    } catch (_) {
-      _errorMessage = AppSettingsProvider.trGlobal(
-        'تعذر إرسال الرسالة الصوتية.',
-        'Impossible d\'envoyer le message vocal.',
-      );
+    } catch (error) {
+      _mapRoomError(error);
     } finally {
       _isRecording = false;
       _isBusy = false;
@@ -544,6 +614,23 @@ class ChatProvider extends ChangeNotifier {
     } finally {
       _isBusy = false;
       notifyListeners();
+    }
+  }
+
+  Future<bool> closeRoom(String roomId) async {
+    _errorMessage = null;
+    _isBusy = true;
+    notifyListeners();
+    try {
+      await _chatService.closeRoom(roomId);
+      _isBusy = false;
+      notifyListeners();
+      return true;
+    } catch (error) {
+      _mapRoomError(error);
+      _isBusy = false;
+      notifyListeners();
+      return false;
     }
   }
 
