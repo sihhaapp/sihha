@@ -22,6 +22,9 @@ const TABLES_IN_ORDER = [
   "app_presence",
   "user_daily_activity",
   "consultation_requests",
+  "patient_medical_records",
+  "medical_record_entries",
+  "triage_audit_logs",
 ];
 
 function parseBoolEnv(name, fallback = false) {
@@ -114,6 +117,9 @@ async function main() {
       console.log("[info] MIGRATE_TRUNCATE_TARGET enabled: truncating target tables.");
       await postgresDb.exec(`
         TRUNCATE TABLE
+          medical_record_entries,
+          patient_medical_records,
+          triage_audit_logs,
           consultation_requests,
           user_daily_activity,
           app_presence,

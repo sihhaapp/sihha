@@ -7,6 +7,12 @@ const jwt = require("jsonwebtoken");
 const multer = require("multer");
 const { AccessToken } = require("livekit-server-sdk");
 const { v4: uuidv4 } = require("uuid");
+let OpenAI = null;
+try {
+  OpenAI = require("openai");
+} catch (_) {
+  OpenAI = null;
+}
 require("dotenv").config();
 
 const { initDb } = require("./db");
@@ -44,6 +50,53 @@ const CONSULTATION_LANG_BILINGUAL = "bilingual";
 const CONSULTATION_STATUS_PENDING = "pending";
 const CONSULTATION_STATUS_ACCEPTED = "accepted";
 const CONSULTATION_STATUS_REJECTED = "rejected";
+const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim();
+const OPENAI_TRIAGE_MODEL = (process.env.OPENAI_TRIAGE_MODEL || "gpt-4o-mini").trim() || "gpt-4o-mini";
+const TRIAGE_ENABLE_MODERATION = parseBooleanValue(
+  process.env.TRIAGE_ENABLE_MODERATION,
+  true,
+);
+const TRIAGE_RISK_VALUES = new Set(["low", "medium", "high", "emergency"]);
+const TRIAGE_SPECIALTY_VALUES = new Set([
+  "general_practice",
+  "pediatrics",
+  "gynecology",
+  "emergency",
+]);
+const TRIAGE_RESPONSE_SCHEMA = {
+  name: "triage_result",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      risk_level: { type: "string", enum: ["low", "medium", "high", "emergency"] },
+      red_flags: { type: "array", items: { type: "string" } },
+      follow_up_questions: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 3,
+        maxItems: 12,
+      },
+      suggested_specialty: {
+        type: "string",
+        enum: ["general_practice", "pediatrics", "gynecology", "emergency"],
+      },
+      self_care: { type: "array", items: { type: "string" } },
+      seek_urgent_care_if: { type: "array", items: { type: "string" } },
+      summary_for_doctor: { type: "string" },
+    },
+    required: [
+      "risk_level",
+      "red_flags",
+      "follow_up_questions",
+      "suggested_specialty",
+      "self_care",
+      "seek_urgent_care_if",
+      "summary_for_doctor",
+    ],
+  },
+};
 const CHAD_STATE_CODES = new Set([
   "barh_el_gazel",
   "batha",
@@ -89,6 +142,7 @@ fs.mkdirSync(uploadsRoot, { recursive: true });
 app.use("/uploads", express.static(uploadsRoot));
 
 let db;
+let openAiClient = null;
 
 function apiError(res, status, code, message) {
   return res.status(status).json({ code, message });
@@ -100,6 +154,396 @@ function toIsoNow() {
 
 function toIsoDate(isoDateTime) {
   return String(isoDateTime || "").slice(0, 10);
+}
+
+function parseBooleanValue(value, fallback = false) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return fallback;
+    if (["1", "true", "yes", "on"].includes(normalized)) return true;
+    if (["0", "false", "no", "off"].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
+function normalizeTriagePayload(body) {
+  const age = Number(body?.age);
+  const sex = String(body?.sex || "").trim().toLowerCase();
+  const weightKg = Number(body?.weightKg);
+  const pregnant = parseBooleanValue(body?.pregnant, false);
+  const symptoms = String(body?.symptoms || "").trim();
+  const duration = String(body?.duration || "").trim();
+  const language = String(body?.language || "").trim().toLowerCase() === "fr" ? "fr" : "ar";
+
+  if (!Number.isInteger(age) || age < 0 || age > 120) {
+    return { error: "triage-invalid-age", message: "age must be an integer between 0 and 120." };
+  }
+  if (sex !== "male" && sex !== "female") {
+    return { error: "triage-invalid-sex", message: "sex must be male or female." };
+  }
+  if (!Number.isFinite(weightKg) || weightKg < 1 || weightKg > 400) {
+    return { error: "triage-invalid-weight", message: "weightKg must be between 1 and 400." };
+  }
+  if (sex === "male" && pregnant) {
+    return {
+      error: "triage-invalid-pregnancy",
+      message: "pregnant cannot be true for male sex.",
+    };
+  }
+  if (symptoms.length < 5 || symptoms.length > 3000) {
+    return {
+      error: "triage-invalid-symptoms",
+      message: "symptoms must be between 5 and 3000 characters.",
+    };
+  }
+  if (duration.length < 1 || duration.length > 120) {
+    return {
+      error: "triage-invalid-duration",
+      message: "duration must be between 1 and 120 characters.",
+    };
+  }
+
+  return {
+    age,
+    sex,
+    weightKg: Number(weightKg.toFixed(2)),
+    pregnant,
+    symptoms,
+    duration,
+    language,
+  };
+}
+
+function defaultFollowUpQuestions(language) {
+  if (language === "fr") {
+    return [
+      "Y a-t-il une douleur thoracique importante ?",
+      "Avez-vous une mesure de saturation en oxygene (SpO2) ?",
+      "Les symptomes s aggravent-ils rapidement ?",
+    ];
+  }
+  return [
+    "هل يوجد ألم صدر شديد؟",
+    "هل قياس الأكسجين (SpO2) متاح؟",
+    "هل الأعراض تتفاقم بسرعة؟",
+  ];
+}
+
+function defaultSelfCareTips(language) {
+  if (language === "fr") {
+    return [
+      "Hydratez-vous regulierement.",
+      "Surveillez la temperature et l evolution des symptomes.",
+    ];
+  }
+  return [
+    "اشرب سوائل بانتظام.",
+    "راقب الحرارة وتطور الأعراض.",
+  ];
+}
+
+function defaultUrgentCareTriggers(language) {
+  if (language === "fr") {
+    return [
+      "Aggravation de la difficulte respiratoire.",
+      "Perte de connaissance, confusion, ou douleur thoracique severe.",
+      "Si les symptomes deviennent severes ou s aggravent, rendez-vous immediatement aux urgences.",
+    ];
+  }
+  return [
+    "تفاقم ضيق النفس.",
+    "إغماء أو تشوش شديد أو ألم صدر قوي.",
+    "إذا كانت الأعراض شديدة أو متفاقمة توجه للطوارئ فورًا.",
+  ];
+}
+
+function normalizeStringList(value, maxItems = 12) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const seen = new Set();
+  const result = [];
+  for (const item of value) {
+    const text = String(item || "").trim().slice(0, 280);
+    if (!text || seen.has(text)) {
+      continue;
+    }
+    seen.add(text);
+    result.push(text);
+    if (result.length >= maxItems) {
+      break;
+    }
+  }
+  return result;
+}
+
+function normalizeSpecialty(rawValue, riskLevel) {
+  if (riskLevel === "emergency") {
+    return "emergency";
+  }
+  const value = String(rawValue || "").trim().toLowerCase();
+  if (!value) return "general_practice";
+  if (TRIAGE_SPECIALTY_VALUES.has(value)) return value;
+  if (["general", "general_medicine", "generalist", "medecin_generaliste"].includes(value)) {
+    return "general_practice";
+  }
+  if (["pediatric", "pediatrician", "pediatre", "children"].includes(value)) {
+    return "pediatrics";
+  }
+  if (["gynecology", "gynaecology", "gynecologue", "obgyn", "obstetrics"].includes(value)) {
+    return "gynecology";
+  }
+  if (["urgent", "urgences", "er"].includes(value)) {
+    return "emergency";
+  }
+  return "general_practice";
+}
+
+function normalizeTriageResult(rawResult, triageInput) {
+  const language = triageInput.language;
+  const rawRisk = String(rawResult?.risk_level || "").trim().toLowerCase();
+  const riskLevel = TRIAGE_RISK_VALUES.has(rawRisk) ? rawRisk : "medium";
+
+  const redFlags = normalizeStringList(rawResult?.red_flags, 12);
+  let followUpQuestions = normalizeStringList(rawResult?.follow_up_questions, 12);
+  if (followUpQuestions.length < 3) {
+    for (const defaultQuestion of defaultFollowUpQuestions(language)) {
+      if (!followUpQuestions.includes(defaultQuestion)) {
+        followUpQuestions.push(defaultQuestion);
+      }
+      if (followUpQuestions.length >= 3) {
+        break;
+      }
+    }
+  }
+
+  const selfCare = normalizeStringList(rawResult?.self_care, 12);
+  if (selfCare.length === 0) {
+    selfCare.push(...defaultSelfCareTips(language));
+  }
+
+  const seekUrgentCareIf = normalizeStringList(rawResult?.seek_urgent_care_if, 12);
+  for (const urgentText of defaultUrgentCareTriggers(language)) {
+    if (!seekUrgentCareIf.includes(urgentText)) {
+      seekUrgentCareIf.push(urgentText);
+    }
+  }
+
+  const suggestedSpecialty = normalizeSpecialty(rawResult?.suggested_specialty, riskLevel);
+  const summaryRaw = String(rawResult?.summary_for_doctor || "").trim();
+  const summaryForDoctor = summaryRaw
+    ? summaryRaw.slice(0, 4000)
+    : language === "fr"
+      ? `Patient ${triageInput.sex === "female" ? "feminin" : "masculin"}, `
+        + `${triageInput.age} ans, ${triageInput.weightKg} kg, symptomes: `
+        + `${triageInput.symptoms}, duree: ${triageInput.duration}, `
+        + `niveau de risque: ${riskLevel}, specialite suggeree: ${suggestedSpecialty}.`
+      : `مريض ${triageInput.sex === "female" ? "أنثى" : "ذكر"}، `
+        + `العمر ${triageInput.age} سنة، الوزن ${triageInput.weightKg} كغ، `
+        + `الأعراض: ${triageInput.symptoms}، المدة: ${triageInput.duration}، `
+        + `مستوى الخطورة: ${riskLevel}، التخصص المقترح: ${suggestedSpecialty}.`;
+
+  return {
+    risk_level: riskLevel,
+    red_flags: redFlags,
+    follow_up_questions: followUpQuestions.slice(0, 12),
+    suggested_specialty: suggestedSpecialty,
+    self_care: selfCare.slice(0, 12),
+    seek_urgent_care_if: seekUrgentCareIf.slice(0, 12),
+    summary_for_doctor: summaryForDoctor,
+  };
+}
+
+function buildModerationFallback(input) {
+  const language = input.language;
+  if (language === "fr") {
+    return {
+      risk_level: "emergency",
+      red_flags: ["Contenu sensible detecte"],
+      follow_up_questions: defaultFollowUpQuestions("fr"),
+      suggested_specialty: "emergency",
+      self_care: defaultSelfCareTips("fr"),
+      seek_urgent_care_if: defaultUrgentCareTriggers("fr"),
+      summary_for_doctor:
+        "Demande de triage marquee comme contenu sensible. Prioriser evaluation humaine immediate.",
+    };
+  }
+  return {
+    risk_level: "emergency",
+    red_flags: ["تم رصد محتوى حساس"],
+    follow_up_questions: defaultFollowUpQuestions("ar"),
+    suggested_specialty: "emergency",
+    self_care: defaultSelfCareTips("ar"),
+    seek_urgent_care_if: defaultUrgentCareTriggers("ar"),
+    summary_for_doctor:
+      "تم تعليم طلب الفرز كمحتوى حساس. يوصى بتقييم بشري فوري.",
+  };
+}
+
+function buildAiUnavailableFallback(input) {
+  const language = input.language;
+  if (language === "fr") {
+    return {
+      risk_level: "high",
+      red_flags: ["Analyse IA temporairement indisponible"],
+      follow_up_questions: defaultFollowUpQuestions("fr"),
+      suggested_specialty: "general_practice",
+      self_care: defaultSelfCareTips("fr"),
+      seek_urgent_care_if: defaultUrgentCareTriggers("fr"),
+      summary_for_doctor:
+        "Analyse IA indisponible (erreur technique). Prioriser evaluation clinique humaine.",
+    };
+  }
+  return {
+    risk_level: "high",
+    red_flags: ["خدمة التحليل الذكي غير متاحة مؤقتًا"],
+    follow_up_questions: defaultFollowUpQuestions("ar"),
+    suggested_specialty: "general_practice",
+    self_care: defaultSelfCareTips("ar"),
+    seek_urgent_care_if: defaultUrgentCareTriggers("ar"),
+    summary_for_doctor:
+      "تعذر تنفيذ تحليل الذكاء الاصطناعي بسبب خطأ تقني. يُنصح بتقييم طبي بشري مباشر.",
+  };
+}
+
+function getOpenAiClient() {
+  if (!OpenAI || !OPENAI_API_KEY) {
+    return null;
+  }
+  if (!openAiClient) {
+    openAiClient = new OpenAI({ apiKey: OPENAI_API_KEY });
+  }
+  return openAiClient;
+}
+
+function isModerationFlagged(moderationResponse) {
+  const results = Array.isArray(moderationResponse?.results) ? moderationResponse.results : [];
+  if (results.length === 0) {
+    return false;
+  }
+  return results.some((item) => Boolean(item?.flagged));
+}
+
+function parseJsonObjectFromText(rawText) {
+  const text = String(rawText || "").trim();
+  if (!text) {
+    throw new Error("triage-empty-output");
+  }
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    const firstBrace = text.indexOf("{");
+    const lastBrace = text.lastIndexOf("}");
+    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+      throw new Error("triage-invalid-json-output");
+    }
+    return JSON.parse(text.slice(firstBrace, lastBrace + 1));
+  }
+}
+
+function extractTriageResponseObject(response) {
+  if (response && typeof response.output_parsed === "object" && response.output_parsed) {
+    return response.output_parsed;
+  }
+  if (response && typeof response.output_text === "string" && response.output_text.trim()) {
+    return parseJsonObjectFromText(response.output_text);
+  }
+
+  const output = Array.isArray(response?.output) ? response.output : [];
+  for (const item of output) {
+    const contentList = Array.isArray(item?.content) ? item.content : [];
+    for (const content of contentList) {
+      if (content && typeof content.parsed === "object" && content.parsed) {
+        return content.parsed;
+      }
+      if (content && typeof content.json === "object" && content.json) {
+        return content.json;
+      }
+      if (typeof content?.text === "string" && content.text.trim()) {
+        return parseJsonObjectFromText(content.text);
+      }
+    }
+  }
+
+  throw new Error("triage-empty-output");
+}
+
+async function requestStructuredTriageResponse(client, inputMessages) {
+  try {
+    return await client.responses.create({
+      model: OPENAI_TRIAGE_MODEL,
+      input: inputMessages,
+      response_format: {
+        type: "json_schema",
+        json_schema: TRIAGE_RESPONSE_SCHEMA,
+      },
+    });
+  } catch (_firstError) {
+    return client.responses.create({
+      model: OPENAI_TRIAGE_MODEL,
+      input: inputMessages,
+      text: {
+        format: {
+          type: "json_schema",
+          name: TRIAGE_RESPONSE_SCHEMA.name,
+          schema: TRIAGE_RESPONSE_SCHEMA.schema,
+          strict: true,
+        },
+      },
+    });
+  }
+}
+
+async function insertTriageAuditLog({
+  userId,
+  input,
+  result,
+  moderationFlagged,
+  status,
+  errorCode = null,
+  errorMessage = null,
+}) {
+  try {
+    await db.run(
+      `INSERT INTO triage_audit_logs (
+         id, user_id, age_years, sex, weight_kg, pregnant,
+         symptoms, duration_text, language, risk_level, suggested_specialty,
+         red_flags, follow_up_questions, self_care, seek_urgent_care_if, summary_for_doctor,
+         model_name, moderation_flagged, status, error_code, error_message, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      uuidv4(),
+      userId || null,
+      Number(input?.age || 0),
+      String(input?.sex || ""),
+      Number(input?.weightKg || 0),
+      input?.pregnant ? 1 : 0,
+      String(input?.symptoms || ""),
+      String(input?.duration || ""),
+      String(input?.language || "ar"),
+      result ? result.risk_level : null,
+      result ? result.suggested_specialty : null,
+      JSON.stringify(result?.red_flags || []),
+      JSON.stringify(result?.follow_up_questions || []),
+      JSON.stringify(result?.self_care || []),
+      JSON.stringify(result?.seek_urgent_care_if || []),
+      String(result?.summary_for_doctor || ""),
+      OPENAI_TRIAGE_MODEL,
+      moderationFlagged ? 1 : 0,
+      String(status || "unknown"),
+      errorCode,
+      errorMessage,
+      toIsoNow(),
+    );
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error("triage-audit-log-failed", error);
+  }
 }
 
 function normalizeLocalPhoneDigits(phoneNumber) {
@@ -188,6 +632,36 @@ function mapConsultationRequestRow(row) {
     targetDoctorPhotoUrl: row.target_doctor_photo_url || "",
     respondedByDoctorName: row.responded_by_doctor_name || null,
     transferredByDoctorName: row.transferred_by_doctor_name || null,
+  };
+}
+
+function mapMedicalRecordEntryRow(row, options = {}) {
+  if (!row) return null;
+  const includeSecretNotes = options.includeSecretNotes === true;
+  return {
+    id: row.id,
+    patientId: row.patient_id,
+    roomId: row.room_id,
+    doctorId: row.doctor_id,
+    doctorName: row.doctor_name || "",
+    diagnosis: row.diagnosis || "",
+    prescribedMedications: row.prescribed_medications || "",
+    secretNotes: includeSecretNotes ? (row.secret_notes || "") : "",
+    prescriptionPdfUrl: row.prescription_pdf_url || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapConsultationHistoryRow(row) {
+  if (!row) return null;
+  return {
+    roomId: row.room_id,
+    doctorId: row.doctor_id,
+    doctorName: row.doctor_name || "",
+    startedAt: row.started_at,
+    lastUpdatedAt: row.last_updated_at,
+    isClosed: row.is_closed === 1,
   };
 }
 
@@ -529,6 +1003,97 @@ async function getConsultationRequestByRoom(room) {
   );
 }
 
+async function getPatientMedicalRecordRow(patientId) {
+  return db.get(
+    `SELECT patient_id, allergies, chronic_diseases, created_at, updated_at
+     FROM patient_medical_records
+     WHERE patient_id = ?`,
+    patientId,
+  );
+}
+
+async function listMedicalRecordEntriesByPatient(patientId) {
+  return db.all(
+    `SELECT
+      e.*,
+      d.name AS doctor_name
+     FROM medical_record_entries e
+     JOIN users d ON d.id = e.doctor_id
+     WHERE e.patient_id = ?
+     ORDER BY datetime(e.updated_at) DESC`,
+    patientId,
+  );
+}
+
+async function listConsultationHistoryByPatient(patientId) {
+  return db.all(
+    `SELECT
+      r.id AS room_id,
+      r.doctor_id,
+      r.doctor_name,
+      r.created_at AS started_at,
+      r.last_updated_at,
+      r.is_closed
+     FROM rooms r
+     WHERE r.patient_id = ?
+     ORDER BY datetime(r.last_updated_at) DESC`,
+    patientId,
+  );
+}
+
+function uniqueNonEmpty(values) {
+  const seen = new Set();
+  const result = [];
+  for (const raw of values) {
+    const value = String(raw || "").trim();
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
+}
+
+function getLatestPrescriptionPdfUrl(entryRows) {
+  const match = (entryRows || []).find((row) => String(row.prescription_pdf_url || "").trim());
+  if (!match) return null;
+  return String(match.prescription_pdf_url || "").trim() || null;
+}
+
+async function buildMedicalRecordPayload({
+  patientId,
+  viewerRole,
+  viewerUserId,
+}) {
+  const [profileRow, entryRows, historyRows] = await Promise.all([
+    getPatientMedicalRecordRow(patientId),
+    listMedicalRecordEntriesByPatient(patientId),
+    listConsultationHistoryByPatient(patientId),
+  ]);
+
+  const canSeeSecretForRow = (row) => viewerRole === "doctor" && row.doctor_id === viewerUserId;
+  const entries = entryRows.map((row) =>
+    mapMedicalRecordEntryRow(row, {
+      includeSecretNotes: canSeeSecretForRow(row),
+    }));
+
+  const previousDiagnoses = uniqueNonEmpty(entryRows.map((row) => row.diagnosis));
+  const prescribedMedications = uniqueNonEmpty(entryRows.map((row) => row.prescribed_medications));
+
+  return {
+    patientId,
+    allergies: profileRow?.allergies || "",
+    chronicDiseases: profileRow?.chronic_diseases || "",
+    consultationHistory: historyRows.map(mapConsultationHistoryRow).filter(Boolean),
+    previousDiagnoses,
+    prescribedMedications,
+    latestPrescriptionPdfUrl: getLatestPrescriptionPdfUrl(entryRows),
+    updatedAt: profileRow?.updated_at || entryRows[0]?.updated_at || null,
+    entries,
+  };
+}
+
 function normalizeConsultationPayload(reqBody, patientUser) {
   const doctorId = String(reqBody.doctorId || "").trim();
   const subjectType = String(reqBody.subjectType || "").trim();
@@ -806,6 +1371,123 @@ const upload = multer({ storage });
 
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
+});
+
+app.post("/api/triage/analyze", requireAuth, async (req, res) => {
+  const normalized = normalizeTriagePayload(req.body);
+  if (normalized.error) {
+    await insertTriageAuditLog({
+      userId: req.authUser?.id,
+      input: req.body || {},
+      result: null,
+      moderationFlagged: false,
+      status: "invalid_input",
+      errorCode: normalized.error,
+      errorMessage: normalized.message,
+    });
+    return apiError(res, 400, normalized.error, normalized.message);
+  }
+
+  const client = getOpenAiClient();
+  if (!client) {
+    await insertTriageAuditLog({
+      userId: req.authUser?.id,
+      input: normalized,
+      result: null,
+      moderationFlagged: false,
+      status: "unavailable",
+      errorCode: "triage-openai-not-configured",
+      errorMessage: "OpenAI API key is missing or SDK is unavailable.",
+    });
+    return apiError(
+      res,
+      503,
+      "triage-openai-not-configured",
+      "Triage AI is not configured on backend.",
+    );
+  }
+
+  let moderationFlagged = false;
+  if (TRIAGE_ENABLE_MODERATION) {
+    try {
+      const moderation = await client.moderations.create({
+        model: "omni-moderation-latest",
+        input: `${normalized.symptoms}\n${normalized.duration}`,
+      });
+      moderationFlagged = isModerationFlagged(moderation);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("triage-moderation-failed", error);
+    }
+  }
+
+  if (moderationFlagged) {
+    const fallback = buildModerationFallback(normalized);
+    await insertTriageAuditLog({
+      userId: req.authUser?.id,
+      input: normalized,
+      result: fallback,
+      moderationFlagged: true,
+      status: "moderation_flagged",
+      errorCode: "triage-content-flagged",
+      errorMessage: "Content flagged by moderation.",
+    });
+    return res.json(fallback);
+  }
+
+  const systemPrompt = `
+أنت مساعد فرز طبي (Triage) غير تشخيصي.
+- لا تقدّم تشخيصًا نهائيًا.
+- لا تقدّم أي جرعات دوائية أو وصفات دوائية.
+- ركّز فقط على: مستوى الخطورة، مؤشرات الإنذار، أسئلة متابعة، نصائح سلامة عامة.
+- إذا وجدت مؤشرات خطر، ارفع مستوى الخطورة واذكر ضرورة التوجه للطوارئ فورًا.
+- استخدم لغة المستخدم (ar أو fr).
+- يجب أن تكون suggested_specialty واحدة من: general_practice, pediatrics, gynecology, emergency.
+- أعد JSON فقط حسب المخطط المطلوب.
+  `.trim();
+
+  const userPayload = {
+    age: normalized.age,
+    sex: normalized.sex,
+    weightKg: normalized.weightKg,
+    pregnant: normalized.pregnant,
+    symptoms: normalized.symptoms,
+    duration: normalized.duration,
+    locale: normalized.language,
+    country: "TD",
+  };
+
+  try {
+    const response = await requestStructuredTriageResponse(client, [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: JSON.stringify(userPayload) },
+    ]);
+    const parsed = extractTriageResponseObject(response);
+    const result = normalizeTriageResult(parsed, normalized);
+
+    await insertTriageAuditLog({
+      userId: req.authUser?.id,
+      input: normalized,
+      result,
+      moderationFlagged,
+      status: "success",
+    });
+
+    return res.json(result);
+  } catch (error) {
+    const details = String(error?.message || "triage_failed").slice(0, 500);
+    const fallback = normalizeTriageResult(buildAiUnavailableFallback(normalized), normalized);
+    await insertTriageAuditLog({
+      userId: req.authUser?.id,
+      input: normalized,
+      result: fallback,
+      moderationFlagged,
+      status: "fallback_ai_error",
+      errorCode: "triage-fallback",
+      errorMessage: details,
+    });
+    return res.json(fallback);
+  }
 });
 
 app.post("/api/auth/signup", async (req, res) => {
@@ -1656,6 +2338,207 @@ app.get("/api/rooms/:roomId/consultation-request", requireAuth, async (req, res)
   return res.json({ request: mapConsultationRequestRow(requestRow) });
 });
 
+app.get("/api/rooms/:roomId/medical-record", requireAuth, async (req, res) => {
+  const room = await db.get("SELECT * FROM rooms WHERE id = ?", req.params.roomId);
+  if (!room) {
+    return apiError(res, 404, "room-not-found", "Room not found.");
+  }
+  if (!ensureParticipant(room, req.authUser.id)) {
+    return apiError(res, 403, "forbidden", "No access to this room.");
+  }
+
+  const record = await buildMedicalRecordPayload({
+    patientId: room.patient_id,
+    viewerRole: req.authUser.role,
+    viewerUserId: req.authUser.id,
+  });
+  return res.json({ record });
+});
+
+app.put("/api/rooms/:roomId/medical-record", requireAuth, async (req, res) => {
+  const room = await db.get("SELECT * FROM rooms WHERE id = ?", req.params.roomId);
+  if (!room) {
+    return apiError(res, 404, "room-not-found", "Room not found.");
+  }
+  if (!ensureParticipant(room, req.authUser.id)) {
+    return apiError(res, 403, "forbidden", "No access to this room.");
+  }
+  if (req.authUser.role !== "doctor" || room.doctor_id !== req.authUser.id) {
+    return apiError(res, 403, "forbidden", "Only the room doctor can update medical record.");
+  }
+
+  const hasAllergies = Object.prototype.hasOwnProperty.call(req.body, "allergies");
+  const hasChronicDiseases = Object.prototype.hasOwnProperty.call(req.body, "chronicDiseases");
+  const hasDiagnosis = Object.prototype.hasOwnProperty.call(req.body, "diagnosis");
+  const hasPrescribedMedications = Object.prototype.hasOwnProperty.call(
+    req.body,
+    "prescribedMedications",
+  );
+  const hasSecretNotes = Object.prototype.hasOwnProperty.call(req.body, "secretNotes");
+  const hasPrescriptionPdfUrl = Object.prototype.hasOwnProperty.call(
+    req.body,
+    "prescriptionPdfUrl",
+  );
+
+  if (
+    !hasAllergies
+    && !hasChronicDiseases
+    && !hasDiagnosis
+    && !hasPrescribedMedications
+    && !hasSecretNotes
+    && !hasPrescriptionPdfUrl
+  ) {
+    return apiError(
+      res,
+      400,
+      "medical-record-empty-update",
+      "At least one field is required.",
+    );
+  }
+
+  const allergies = hasAllergies ? String(req.body.allergies || "").trim() : null;
+  const chronicDiseases = hasChronicDiseases
+    ? String(req.body.chronicDiseases || "").trim()
+    : null;
+  const diagnosis = hasDiagnosis ? String(req.body.diagnosis || "").trim() : null;
+  const prescribedMedications = hasPrescribedMedications
+    ? String(req.body.prescribedMedications || "").trim()
+    : null;
+  const secretNotes = hasSecretNotes ? String(req.body.secretNotes || "").trim() : null;
+  const prescriptionPdfUrl = hasPrescriptionPdfUrl
+    ? String(req.body.prescriptionPdfUrl || "").trim()
+    : null;
+
+  const tooLong = [
+    { key: "allergies", value: allergies, max: 3000 },
+    { key: "chronicDiseases", value: chronicDiseases, max: 3000 },
+    { key: "diagnosis", value: diagnosis, max: 4000 },
+    { key: "prescribedMedications", value: prescribedMedications, max: 4000 },
+    { key: "secretNotes", value: secretNotes, max: 4000 },
+    { key: "prescriptionPdfUrl", value: prescriptionPdfUrl, max: 2000 },
+  ].find((item) => item.value != null && item.value.length > item.max);
+
+  if (tooLong) {
+    return apiError(
+      res,
+      400,
+      "medical-record-invalid-field",
+      `${tooLong.key} is too long.`,
+    );
+  }
+
+  if (
+    hasPrescriptionPdfUrl
+    && prescriptionPdfUrl
+    && !/^https?:\/\//i.test(prescriptionPdfUrl)
+  ) {
+    return apiError(
+      res,
+      400,
+      "medical-record-invalid-pdf-url",
+      "prescriptionPdfUrl must be a valid URL.",
+    );
+  }
+
+  const now = toIsoNow();
+  const patientId = room.patient_id;
+  const profileRow = await getPatientMedicalRecordRow(patientId);
+  const nextAllergies = hasAllergies ? allergies : (profileRow?.allergies || "");
+  const nextChronicDiseases = hasChronicDiseases
+    ? chronicDiseases
+    : (profileRow?.chronic_diseases || "");
+
+  if (profileRow) {
+    await db.run(
+      `UPDATE patient_medical_records
+       SET allergies = ?,
+           chronic_diseases = ?,
+           updated_at = ?
+       WHERE patient_id = ?`,
+      nextAllergies,
+      nextChronicDiseases,
+      now,
+      patientId,
+    );
+  } else {
+    await db.run(
+      `INSERT INTO patient_medical_records (
+         patient_id, allergies, chronic_diseases, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?)`,
+      patientId,
+      nextAllergies,
+      nextChronicDiseases,
+      now,
+      now,
+    );
+  }
+
+  const hasEntryUpdate =
+    hasDiagnosis || hasPrescribedMedications || hasSecretNotes || hasPrescriptionPdfUrl;
+  if (hasEntryUpdate) {
+    const existingEntry = await db.get(
+      `SELECT *
+       FROM medical_record_entries
+       WHERE room_id = ?
+         AND doctor_id = ?
+       LIMIT 1`,
+      room.id,
+      req.authUser.id,
+    );
+
+    const nextDiagnosis = hasDiagnosis ? diagnosis : (existingEntry?.diagnosis || "");
+    const nextPrescribedMedications = hasPrescribedMedications
+      ? prescribedMedications
+      : (existingEntry?.prescribed_medications || "");
+    const nextSecretNotes = hasSecretNotes ? secretNotes : (existingEntry?.secret_notes || "");
+    const nextPrescriptionPdfUrl = hasPrescriptionPdfUrl
+      ? prescriptionPdfUrl
+      : (existingEntry?.prescription_pdf_url || "");
+
+    if (existingEntry) {
+      await db.run(
+        `UPDATE medical_record_entries
+         SET diagnosis = ?,
+             prescribed_medications = ?,
+             secret_notes = ?,
+             prescription_pdf_url = ?,
+             updated_at = ?
+         WHERE id = ?`,
+        nextDiagnosis,
+        nextPrescribedMedications,
+        nextSecretNotes,
+        nextPrescriptionPdfUrl,
+        now,
+        existingEntry.id,
+      );
+    } else {
+      await db.run(
+        `INSERT INTO medical_record_entries (
+           id, patient_id, room_id, doctor_id, diagnosis, prescribed_medications,
+           secret_notes, prescription_pdf_url, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        uuidv4(),
+        patientId,
+        room.id,
+        req.authUser.id,
+        nextDiagnosis,
+        nextPrescribedMedications,
+        nextSecretNotes,
+        nextPrescriptionPdfUrl,
+        now,
+        now,
+      );
+    }
+  }
+
+  const record = await buildMedicalRecordPayload({
+    patientId,
+    viewerRole: req.authUser.role,
+    viewerUserId: req.authUser.id,
+  });
+  return res.json({ record });
+});
+
 app.put("/api/consultation-requests/:requestId", requireAuth, async (req, res) => {
   if (req.authUser.role !== "doctor") {
     return apiError(res, 403, "forbidden", "Only doctors can update consultation requests.");
@@ -1842,6 +2725,41 @@ app.post(
     const relativePath = path.relative(uploadsRoot, req.file.path);
     const imageUrl = buildFileUrl(req, path.join("uploads", relativePath));
     return res.status(201).json({ imageUrl });
+  },
+);
+
+app.post(
+  "/api/uploads/prescription-pdf",
+  requireAuth,
+  (req, res, next) => {
+    if (req.authUser.role !== "doctor") {
+      return apiError(res, 403, "forbidden", "Only doctors can upload prescription PDF.");
+    }
+    req.uploadFolder = path.join("prescriptions", req.authUser.id);
+    return next();
+  },
+  upload.single("pdf"),
+  async (req, res) => {
+    if (!req.file) {
+      return apiError(res, 400, "prescription-pdf-required", "PDF file is required.");
+    }
+
+    const ext = path.extname(req.file.originalname || "").toLowerCase();
+    const mimeType = String(req.file.mimetype || "").toLowerCase();
+    const isPdf = ext === ".pdf" || mimeType.includes("pdf");
+    if (!isPdf) {
+      fs.unlink(req.file.path, () => {});
+      return apiError(res, 400, "prescription-pdf-invalid-type", "Only PDF file is allowed.");
+    }
+
+    if (Number(req.file.size || 0) > 10 * 1024 * 1024) {
+      fs.unlink(req.file.path, () => {});
+      return apiError(res, 400, "prescription-pdf-too-large", "PDF file must be <= 10MB.");
+    }
+
+    const relativePath = path.relative(uploadsRoot, req.file.path);
+    const pdfUrl = buildFileUrl(req, path.join("uploads", relativePath));
+    return res.status(201).json({ pdfUrl });
   },
 );
 

@@ -35,6 +35,11 @@ Before using voice calls, configure LiveKit variables in `.env`:
 - `LIVEKIT_API_SECRET`
 - Optional: `LIVEKIT_TOKEN_TTL_SECONDS`, `LIVEKIT_ROOM_PREFIX`
 
+Before using AI triage, configure OpenAI variables in `.env`:
+- `OPENAI_API_KEY` (server-side only, never expose in Flutter)
+- Optional: `OPENAI_TRIAGE_MODEL` (default: `gpt-4o-mini`)
+- Optional: `TRIAGE_ENABLE_MODERATION=true` (default enabled)
+
 ## 2) SQLite -> PostgreSQL migration
 
 If you have existing SQLite data:
@@ -101,8 +106,47 @@ flutter run --dart-define=API_BASE_URL=http://192.168.1.50:3000/api
 - `POST /api/rooms/:roomId/live/join`
 - `GET /api/blogs`
 - `POST /api/blogs`
+- `POST /api/triage/analyze`
 
-## 5) Docker run
+## 5) Triage endpoint (`POST /api/triage/analyze`)
+
+Requires auth token (`Authorization: Bearer <jwt>`).
+
+Example request body:
+
+```json
+{
+  "age": 28,
+  "sex": "female",
+  "weightKg": 60,
+  "pregnant": false,
+  "symptoms": "حمى 39 مع سعال وضيق نفس منذ يومين",
+  "duration": "2 days",
+  "language": "ar"
+}
+```
+
+Response shape:
+
+```json
+{
+  "risk_level": "high",
+  "red_flags": ["ضيق نفس", "حمى مرتفعة"],
+  "follow_up_questions": ["هل يوجد ألم صدر؟", "هل قياس الأكسجين متاح؟", "هل الأعراض تتفاقم بسرعة؟"],
+  "suggested_specialty": "general_practice",
+  "self_care": ["اشرب سوائل", "راقب الحرارة"],
+  "seek_urgent_care_if": ["تفاقم ضيق النفس", "زرقة", "إغماء"],
+  "summary_for_doctor": "مريضة 28 سنة... (ملخص منظم)"
+}
+```
+
+Notes:
+- Guardrails are enforced: no diagnosis, no medication doses.
+- Inputs can be moderated (`omni-moderation-latest`) before analysis.
+- Every triage call is stored in `triage_audit_logs` for audit/quality.
+- Emergency safety reminder is always included in urgent-care guidance.
+
+## 6) Docker run
 
 ```bash
 cd backend
@@ -115,7 +159,7 @@ docker run -p 3000:3000 \
   sihha-backend
 ```
 
-## 6) Production notes
+## 7) Production notes
 
 - Keep PostgreSQL backups enabled.
 - Use object storage for uploads (S3/R2/Spaces) for scale.

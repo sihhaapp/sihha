@@ -277,6 +277,57 @@ async function ensureSchema(db) {
       FOREIGN KEY(linked_room_id) REFERENCES rooms(id) ON DELETE SET NULL
     );
 
+    CREATE TABLE IF NOT EXISTS patient_medical_records (
+      patient_id TEXT PRIMARY KEY,
+      allergies TEXT NOT NULL DEFAULT '',
+      chronic_diseases TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(patient_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS medical_record_entries (
+      id TEXT PRIMARY KEY,
+      patient_id TEXT NOT NULL,
+      room_id TEXT NOT NULL,
+      doctor_id TEXT NOT NULL,
+      diagnosis TEXT NOT NULL DEFAULT '',
+      prescribed_medications TEXT NOT NULL DEFAULT '',
+      secret_notes TEXT NOT NULL DEFAULT '',
+      prescription_pdf_url TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(patient_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+      FOREIGN KEY(doctor_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS triage_audit_logs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      age_years INTEGER NOT NULL,
+      sex TEXT NOT NULL,
+      weight_kg REAL NOT NULL,
+      pregnant INTEGER NOT NULL DEFAULT 0,
+      symptoms TEXT NOT NULL,
+      duration_text TEXT NOT NULL,
+      language TEXT NOT NULL,
+      risk_level TEXT,
+      suggested_specialty TEXT,
+      red_flags TEXT NOT NULL DEFAULT '[]',
+      follow_up_questions TEXT NOT NULL DEFAULT '[]',
+      self_care TEXT NOT NULL DEFAULT '[]',
+      seek_urgent_care_if TEXT NOT NULL DEFAULT '[]',
+      summary_for_doctor TEXT NOT NULL DEFAULT '',
+      model_name TEXT,
+      moderation_flagged INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL,
+      error_code TEXT,
+      error_message TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
     CREATE INDEX IF NOT EXISTS idx_rooms_patient ON rooms(patient_id);
     CREATE INDEX IF NOT EXISTS idx_rooms_doctor ON rooms(doctor_id);
@@ -291,6 +342,14 @@ async function ensureSchema(db) {
       ON consultation_requests(target_doctor_id, status, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_consult_req_patient_status
       ON consultation_requests(patient_id, status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_medical_record_patient_updated
+      ON medical_record_entries(patient_id, updated_at DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_medical_record_room_doctor_unique
+      ON medical_record_entries(room_id, doctor_id);
+    CREATE INDEX IF NOT EXISTS idx_triage_logs_created
+      ON triage_audit_logs(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_triage_logs_user
+      ON triage_audit_logs(user_id, created_at DESC);
   `);
 
   await ensureColumn(db, "rooms", "is_closed", "INTEGER NOT NULL DEFAULT 0");
