@@ -88,6 +88,9 @@ async function initDb(databasePath) {
       category TEXT NOT NULL,
       author_id TEXT NOT NULL,
       author_name TEXT NOT NULL,
+      expressive_image_url1 TEXT NOT NULL DEFAULT '',
+      expressive_image_url2 TEXT NOT NULL DEFAULT '',
+      expressive_image_url3 TEXT NOT NULL DEFAULT '',
       published_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY(author_id) REFERENCES users(id) ON DELETE CASCADE
@@ -156,6 +159,7 @@ async function initDb(databasePath) {
   await ensureAnalyticsTables(db);
   await ensureConsultationRequestColumns(db);
   await ensureRoomsClosedColumn(db);
+  await ensureBlogsImageColumns(db);
 
   return db;
 }
@@ -285,6 +289,23 @@ async function ensureRoomsClosedColumn(db) {
   const hasClosed = columns.some((c) => c.name === "is_closed");
   if (!hasClosed) {
     await db.exec("ALTER TABLE rooms ADD COLUMN is_closed INTEGER NOT NULL DEFAULT 0;");
+  }
+}
+
+async function ensureBlogsImageColumns(db) {
+  const columns = await db.all("PRAGMA table_info(blogs)");
+  const hasImage1 = columns.some((c) => c.name === "expressive_image_url1");
+  const hasImage2 = columns.some((c) => c.name === "expressive_image_url2");
+  const hasImage3 = columns.some((c) => c.name === "expressive_image_url3");
+
+  if (!hasImage1) {
+    await db.exec("ALTER TABLE blogs ADD COLUMN expressive_image_url1 TEXT NOT NULL DEFAULT '';");
+  }
+  if (!hasImage2) {
+    await db.exec("ALTER TABLE blogs ADD COLUMN expressive_image_url2 TEXT NOT NULL DEFAULT '';");
+  }
+  if (!hasImage3) {
+    await db.exec("ALTER TABLE blogs ADD COLUMN expressive_image_url3 TEXT NOT NULL DEFAULT '';");
   }
 }
 

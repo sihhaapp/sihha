@@ -15,18 +15,36 @@ String normalizeBackendMediaUrl(dynamic value) {
   }
 
   String normalizeUploadPath(String path) {
+    if (path.startsWith('api/uploads/')) {
+      return '/${path.replaceFirst('api/uploads/', 'uploads/')}';
+    }
     if (path.startsWith('/api/uploads/')) {
       return path.replaceFirst('/api/uploads/', '/uploads/');
     }
+    if (path.contains('api/uploads/')) {
+      return '/${path.replaceFirst('api/uploads/', 'uploads/')}';
+    }
     if (path.contains('/api/uploads/')) {
       return path.replaceFirst('/api/uploads/', '/uploads/');
+    }
+    final uploadsIndex = path.indexOf('/uploads/');
+    if (uploadsIndex >= 0) {
+      return path.substring(uploadsIndex);
+    }
+    final rawUploadsIndex = path.indexOf('uploads/');
+    if (rawUploadsIndex >= 0) {
+      return '/${path.substring(rawUploadsIndex)}';
     }
     return path;
   }
 
   bool isUploadsPath(String path) {
     return path.startsWith('/uploads/') ||
+        path.startsWith('uploads/') ||
+        path.contains('uploads/') ||
         path.contains('/uploads/') ||
+        path.startsWith('api/uploads/') ||
+        path.contains('api/uploads/') ||
         path.startsWith('/api/uploads/') ||
         path.contains('/api/uploads/');
   }

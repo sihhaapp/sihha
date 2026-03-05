@@ -4,18 +4,21 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
-import 'src/constants/medical_specialties.dart';
-import 'src/models/app_user.dart';
-import 'src/models/chat_room.dart';
-import 'src/providers/app_settings_provider.dart';
-import 'src/providers/auth_provider.dart';
-import 'src/providers/chat_provider.dart';
-import 'src/screens/app_settings_screen.dart';
-import 'src/screens/chat_list_screen.dart';
-import 'src/screens/chat_screen.dart';
-import 'src/screens/health_blogs_section.dart';
-import 'src/theme/sihha_theme.dart';
-import 'src/widgets/consultation_request_dialog.dart';
+import '../constants/medical_specialties.dart';
+import '../models/app_user.dart';
+import '../models/chat_room.dart';
+import '../providers/app_settings_provider.dart';
+import '../providers/audio_provider.dart';
+import '../providers/auth_provider.dart';
+import '../providers/chat_provider.dart';
+import '../providers/consultation_provider.dart';
+import '../providers/live_session_provider.dart';
+import '../theme/sihha_theme.dart';
+import '../widgets/consultation_request_dialog.dart';
+import 'app_settings_screen.dart';
+import 'chat_list_screen.dart';
+import 'chat_screen.dart';
+import 'health_blogs_section.dart';
 
 class PatientHomeScreen extends StatefulWidget {
   const PatientHomeScreen({super.key, required this.currentUser});
@@ -59,8 +62,9 @@ class _PatientHomeScreenState extends State<PatientHomeScreen>
     setState(() => _openingDoctorId = doctor.id);
 
     try {
-      final provider = context.read<ChatProvider>();
-      final existingRoom = await provider.findRoomWithDoctor(doctor.id);
+      final chatProvider = context.read<ChatProvider>();
+      final consultProvider = context.read<ConsultationProvider>();
+      final existingRoom = await chatProvider.findRoomWithDoctor(doctor.id);
       if (existingRoom != null) {
         if (!mounted) return;
         await _openRoom(existingRoom, patient);
@@ -75,7 +79,7 @@ class _PatientHomeScreenState extends State<PatientHomeScreen>
       );
       if (!mounted || input == null) return;
 
-      final request = await provider.submitConsultationRequest(
+      final request = await consultProvider.submitConsultationRequest(
         doctorId: doctor.id,
         subjectType: input.subjectType,
         subjectName: input.subjectName,
@@ -90,12 +94,12 @@ class _PatientHomeScreenState extends State<PatientHomeScreen>
       );
       if (!mounted) return;
       if (request == null) {
-        final error = provider.errorMessage;
+        final error = consultProvider.errorMessage;
         if (error != null && error.isNotEmpty) {
           ScaffoldMessenger.of(context)
             ..hideCurrentSnackBar()
             ..showSnackBar(SnackBar(content: Text(error)));
-          provider.clearError();
+          consultProvider.clearError();
         }
         return;
       }
@@ -142,8 +146,21 @@ class _PatientHomeScreenState extends State<PatientHomeScreen>
   Future<void> _openRoom(ChatRoom room, AppUser currentUser) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => ChangeNotifierProvider<ChatProvider>.value(
-          value: context.read<ChatProvider>(),
+        builder: (_) => MultiProvider(
+          providers: [
+            ChangeNotifierProvider<ChatProvider>.value(
+              value: context.read<ChatProvider>(),
+            ),
+            ChangeNotifierProvider<AudioProvider>.value(
+              value: context.read<AudioProvider>(),
+            ),
+            ChangeNotifierProvider<LiveSessionProvider>.value(
+              value: context.read<LiveSessionProvider>(),
+            ),
+            ChangeNotifierProvider<ConsultationProvider>.value(
+              value: context.read<ConsultationProvider>(),
+            ),
+          ],
           child: ChatScreen(room: room, currentUser: currentUser),
         ),
       ),

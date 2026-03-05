@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_user.dart';
+import '../utils/api_response_helpers.dart';
+import '../utils/media_url_normalizer.dart';
 import 'api_service.dart';
 
 class AuthService {
@@ -70,8 +72,8 @@ class AuthService {
 
   Future<AppUser> fetchCurrentUser() async {
     final body = await _apiService.get('/auth/me');
-    final map = _readMap(body);
-    final userMap = _readMap(map['user']);
+    final map = readMap(body);
+    final userMap = readMap(map['user']);
     final normalizedUserMap = _normalizeUserMap(userMap);
     return AppUser.fromMap(
       (normalizedUserMap['id'] as String?) ?? '',
@@ -88,8 +90,8 @@ class AuthService {
       fileField: 'photo',
       filePath: imageFile.path,
     );
-    final map = _readMap(body);
-    final userMap = _readMap(map['user']);
+    final map = readMap(body);
+    final userMap = readMap(map['user']);
     final normalizedUserMap = _normalizeUserMap(userMap);
     if (kDebugMode) {
       final rawPhotoUrl = (userMap['photoUrl'] as String?)?.trim() ?? '';
@@ -142,7 +144,7 @@ class AuthService {
   }
 
   Future<AppUser> _consumeAuthResponse(dynamic body) async {
-    final map = _readMap(body);
+    final map = readMap(body);
     final token = (map['token'] as String?)?.trim();
     if (token == null || token.isEmpty) {
       throw const ApiException(
@@ -151,7 +153,7 @@ class AuthService {
       );
     }
 
-    final userMap = _readMap(map['user']);
+    final userMap = readMap(map['user']);
     final normalizedUserMap = _normalizeUserMap(userMap);
     final user = AppUser.fromMap(
       (normalizedUserMap['id'] as String?) ?? '',
@@ -165,60 +167,8 @@ class AuthService {
 
   Map<String, dynamic> _normalizeUserMap(Map<String, dynamic> userMap) {
     final normalized = Map<String, dynamic>.from(userMap);
-    normalized['photoUrl'] = _normalizePhotoUrl(normalized['photoUrl']);
+    normalized['photoUrl'] = normalizeBackendMediaUrl(normalized['photoUrl']);
     return normalized;
-  }
-
-  String _normalizePhotoUrl(dynamic value) {
-    final raw = (value as String?)?.trim() ?? '';
-    if (raw.isEmpty) {
-      return '';
-    }
-
-    final apiUri = Uri.tryParse(_apiService.baseUrl);
-    if (apiUri == null || apiUri.host.isEmpty) {
-      return raw;
-    }
-
-    final sourceUri = Uri.tryParse(raw);
-    if (sourceUri == null) {
-      return raw;
-    }
-
-    final normalizedPath = _normalizeUploadPath(sourceUri.path);
-    final isUploadsPath = normalizedPath.startsWith('/uploads/');
-    if (!isUploadsPath) {
-      return raw;
-    }
-
-    return apiUri
-        .replace(
-          path: normalizedPath,
-          query: sourceUri.query.isEmpty ? null : sourceUri.query,
-          fragment: sourceUri.fragment.isEmpty ? null : sourceUri.fragment,
-        )
-        .toString();
-  }
-
-  String _normalizeUploadPath(String path) {
-    if (path.startsWith('/api/uploads/')) {
-      return path.replaceFirst('/api/uploads/', '/uploads/');
-    }
-    final index = path.indexOf('/uploads/');
-    if (index >= 0) {
-      return path.substring(index);
-    }
-    return path;
-  }
-
-  Map<String, dynamic> _readMap(dynamic value) {
-    if (value is Map<String, dynamic>) {
-      return value;
-    }
-    throw const ApiException(
-      code: 'invalid-response',
-      message: 'Unexpected response from backend.',
-    );
   }
 
   Future<void> _saveToken(String token) async {

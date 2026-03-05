@@ -8,7 +8,10 @@ import '../models/app_user.dart';
 import '../models/chat_room.dart';
 import '../models/consultation_request.dart';
 import '../providers/app_settings_provider.dart';
+import '../providers/audio_provider.dart';
 import '../providers/chat_provider.dart';
+import '../providers/consultation_provider.dart';
+import '../providers/live_session_provider.dart';
 import '../theme/sihha_theme.dart';
 import 'chat_screen.dart';
 
@@ -84,9 +87,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }
 
   Future<String?> _findIncomingRoomIdFromStatus(List<ChatRoom> rooms) async {
-    final provider = context.read<ChatProvider>();
+    final liveProvider = context.read<LiveSessionProvider>();
     for (final room in rooms) {
-      final session = await provider.fetchLiveStatus(room.id);
+      final session = await liveProvider.fetchLiveStatus(room.id);
       if (session == null) continue;
       final status = (session['status'] as String? ?? '').toLowerCase();
       final requestedBy = (session['requestedBy'] as String?)?.trim();
@@ -108,8 +111,21 @@ class _ChatListScreenState extends State<ChatListScreen> {
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => ChangeNotifierProvider<ChatProvider>.value(
-          value: context.read<ChatProvider>(),
+        builder: (_) => MultiProvider(
+          providers: [
+            ChangeNotifierProvider<ChatProvider>.value(
+              value: context.read<ChatProvider>(),
+            ),
+            ChangeNotifierProvider<AudioProvider>.value(
+              value: context.read<AudioProvider>(),
+            ),
+            ChangeNotifierProvider<LiveSessionProvider>.value(
+              value: context.read<LiveSessionProvider>(),
+            ),
+            ChangeNotifierProvider<ConsultationProvider>.value(
+              value: context.read<ConsultationProvider>(),
+            ),
+          ],
           child: ChatScreen(
             room: room,
             currentUser: widget.currentUser,
@@ -120,7 +136,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
     );
   }
 
-  ChatRoom _roomWithFallbackPhotos(ChatRoom room, ChatProvider provider) {
+  ChatRoom _roomWithFallbackPhotos(
+    ChatRoom room,
+    ConsultationProvider provider,
+  ) {
     final req = provider.getCachedConsultation(room.id);
     if (req == null) {
       return room;
@@ -155,7 +174,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
     );
   }
 
-  String _resolvePeerPhotoUrl(ChatRoom room, ChatProvider provider) {
+  String _resolvePeerPhotoUrl(ChatRoom room, ConsultationProvider provider) {
     final isCurrentPatient = room.patientId == widget.currentUser.id;
     final direct =
         (isCurrentPatient ? room.doctorPhotoUrl : room.patientPhotoUrl).trim();
@@ -171,7 +190,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
         .trim();
   }
 
-  void _warmUpRoomPhoto(ChatRoom room, ChatProvider provider) {
+  void _warmUpRoomPhoto(ChatRoom room, ConsultationProvider provider) {
     if (_photoWarmupAttempted.contains(room.id) ||
         _photoWarmupInFlight.contains(room.id)) {
       return;
@@ -200,7 +219,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }
 
   Future<void> _acceptConsultation(String requestId) async {
-    final provider = context.read<ChatProvider>();
+    final provider = context.read<ConsultationProvider>();
     final result = await provider.acceptConsultationRequest(requestId);
     if (!mounted) return;
     if (result == null) {
@@ -221,7 +240,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }
 
   Future<void> _rejectConsultation(String requestId) async {
-    final provider = context.read<ChatProvider>();
+    final provider = context.read<ConsultationProvider>();
     final tr = context.read<AppSettingsProvider>().tr;
     final result = await provider.rejectConsultationRequest(requestId);
     if (!mounted) return;
@@ -238,14 +257,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        SnackBar(
-          content: Text(tr('تم رفض الطلب.', 'Demande rejetee.')),
-        ),
+        SnackBar(content: Text(tr('تم رفض الطلب.', 'Demande rejetee.'))),
       );
   }
 
   Future<void> _transferConsultation(String requestId) async {
-    final provider = context.read<ChatProvider>();
+    final provider = context.read<ConsultationProvider>();
     final tr = context.read<AppSettingsProvider>().tr;
 
     // Dialog to enter the new doctor id.
@@ -255,10 +272,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
       builder: (dialogContext) {
         return AlertDialog(
           title: Text(
-            tr(
-              'تحويل الطلب إلى طبيب آخر',
-              'Transferer vers un autre medecin',
-            ),
+            tr('تحويل الطلب إلى طبيب آخر', 'Transferer vers un autre medecin'),
           ),
           content: TextFormField(
             autofocus: true,
@@ -312,17 +326,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        SnackBar(
-          content: Text(
-            tr('تم تحويل الطلب.', 'Demande transferee.'),
-          ),
-        ),
+        SnackBar(content: Text(tr('تم تحويل الطلب.', 'Demande transferee.'))),
       );
   }
 
   @override
   Widget build(BuildContext context) {
     final chatProvider = context.watch<ChatProvider>();
+    final consultationProvider = context.watch<ConsultationProvider>();
     final settings = context.watch<AppSettingsProvider>();
     final tr = settings.tr;
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -369,7 +380,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
               final allRooms = snapshot.data ?? const <ChatRoom>[];
               _syncIncomingCallRing(allRooms);
               for (final room in allRooms) {
-                _warmUpRoomPhoto(room, chatProvider);
+                _warmUpRoomPhoto(room, consultationProvider);
               }
               final rooms = allRooms.where((room) {
                 if (_searchQuery.isEmpty) return true;
@@ -486,7 +497,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                     isArabic: settings.isArabic,
                                     peerPhotoUrl: _resolvePeerPhotoUrl(
                                       rooms[i],
-                                      chatProvider,
+                                      consultationProvider,
                                     ),
                                     previewText: _previewText(
                                       rooms[i].lastMessage,
@@ -498,7 +509,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                     onTap: () => _openRoom(
                                       _roomWithFallbackPhotos(
                                         rooms[i],
-                                        chatProvider,
+                                        consultationProvider,
                                       ),
                                     ),
                                     formatClock: _formatClock,
@@ -534,9 +545,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   String _previewText(String raw, String Function(String, String) tr) {
     final value = raw.trim();
     if (value.isEmpty) {
-      return tr('ابدأ المحادثة الآن',
-        'Commencez la discussion',
-      );
+      return tr('ابدأ المحادثة الآن', 'Commencez la discussion');
     }
     if (value == 'Image') {
       return tr('صورة', 'Photo');
@@ -644,10 +653,7 @@ class _ConversationsHeaderCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       isPatient
-                          ? tr(
-                              'لوحة الاستشارات',
-                              'Tableau des consultations',
-                            )
+                          ? tr('لوحة الاستشارات', 'Tableau des consultations')
                           : tr(
                               'لوحة المحادثات الطبية',
                               'Tableau des discussions medicales',
@@ -670,10 +676,7 @@ class _ConversationsHeaderCard extends StatelessWidget {
               ),
               _HeaderBadge(
                 icon: Icons.mark_chat_unread_rounded,
-                text: tr(
-                  'غير المقروء: $unreadCount',
-                  'Non lus: $unreadCount',
-                ),
+                text: tr('غير المقروء: $unreadCount', 'Non lus: $unreadCount'),
               ),
               _HeaderBadge(
                 icon: Icons.verified_user_rounded,
@@ -914,12 +917,12 @@ class _DoctorConsultationInbox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final chatProvider = context.watch<ChatProvider>();
+    final consultProvider = context.watch<ConsultationProvider>();
     final tr = context.watch<AppSettingsProvider>().tr;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return StreamBuilder<List<ConsultationRequest>>(
-      stream: chatProvider.doctorConsultationInboxStream(),
+      stream: consultProvider.doctorConsultationInboxStream(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Padding(
@@ -1101,16 +1104,14 @@ class _EmptyConsultations extends StatelessWidget {
           const SizedBox(height: 10),
           Text(
             hasSearch
-                ? tr(
-                    'لا توجد نتائج مطابقة.',
-                    'Aucun resultat correspondant.',
-                  )
+                ? tr('لا توجد نتائج مطابقة.', 'Aucun resultat correspondant.')
                 : isPatient
                 ? tr(
                     'لا توجد استشارات بعد. ابدأ استشارة جديدة.',
                     'Aucune consultation pour le moment.',
                   )
-                : tr('لا توجد محادثات بعد.',
+                : tr(
+                    'لا توجد محادثات بعد.',
                     'Aucune discussion pour le moment.',
                   ),
             textAlign: TextAlign.center,

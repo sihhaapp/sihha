@@ -1,3 +1,4 @@
+import '../utils/date_parser.dart';
 import '../utils/text_normalizer.dart';
 
 enum MessageType {
@@ -88,44 +89,11 @@ class ChatMessage {
       type: type,
       content: _normalizeMessageContent(type: type, content: rawContent),
       durationSeconds: (map['durationSeconds'] as num?)?.toInt() ?? 0,
-      deliveredAt: _parseNullableDate(map['deliveredAt']),
-      readAt: _parseNullableDate(map['readAt']),
-      sentAt: _parseDate(map['sentAt']),
+      deliveredAt: parseNullableDate(map['deliveredAt']),
+      readAt: parseNullableDate(map['readAt']),
+      sentAt: parseDate(map['sentAt']),
     );
   }
-}
-
-DateTime? _parseNullableDate(dynamic value) {
-  if (value == null) {
-    return null;
-  }
-  final parsed = _parseDate(value);
-  return parsed;
-}
-
-DateTime _parseDate(dynamic value) {
-  if (value is DateTime) {
-    return value;
-  }
-  if (value is String) {
-    final parsed = DateTime.tryParse(value);
-    if (parsed != null) {
-      return parsed;
-    }
-  }
-  if (value is int) {
-    return DateTime.fromMillisecondsSinceEpoch(value);
-  }
-  if (value is num) {
-    return DateTime.fromMillisecondsSinceEpoch(value.toInt());
-  }
-  if (value is Map<String, dynamic>) {
-    final seconds = value['_seconds'] ?? value['seconds'];
-    if (seconds is int) {
-      return DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
-    }
-  }
-  return DateTime.now();
 }
 
 String _normalizeMessageContent({

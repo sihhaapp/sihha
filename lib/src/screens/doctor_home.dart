@@ -4,17 +4,20 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
-import 'src/constants/medical_specialties.dart';
-import 'src/models/app_user.dart';
-import 'src/models/chat_room.dart';
-import 'src/providers/app_settings_provider.dart';
-import 'src/providers/auth_provider.dart';
-import 'src/providers/chat_provider.dart';
-import 'src/screens/app_settings_screen.dart';
-import 'src/screens/chat_list_screen.dart';
-import 'src/screens/chat_screen.dart';
-import 'src/screens/health_blogs_section.dart';
-import 'src/theme/sihha_theme.dart';
+import '../constants/medical_specialties.dart';
+import '../models/app_user.dart';
+import '../models/chat_room.dart';
+import '../providers/app_settings_provider.dart';
+import '../providers/audio_provider.dart';
+import '../providers/auth_provider.dart';
+import '../providers/chat_provider.dart';
+import '../providers/consultation_provider.dart';
+import '../providers/live_session_provider.dart';
+import '../theme/sihha_theme.dart';
+import 'app_settings_screen.dart';
+import 'chat_list_screen.dart';
+import 'chat_screen.dart';
+import 'health_blogs_section.dart';
 
 class DoctorHomeScreen extends StatefulWidget {
   const DoctorHomeScreen({super.key, required this.currentUser});
@@ -94,17 +97,26 @@ class _DoctorHomeScreenState extends State<DoctorHomeScreen>
               NavigationDestination(
                 icon: const Icon(Icons.chat_bubble_outline),
                 selectedIcon: const Icon(Icons.chat_bubble),
-                label: tr('\u0627\u0644\u0645\u062d\u0627\u062f\u062b\u0627\u062a', 'Discussions'),
+                label: tr(
+                  '\u0627\u0644\u0645\u062d\u0627\u062f\u062b\u0627\u062a',
+                  'Discussions',
+                ),
               ),
               NavigationDestination(
                 icon: const Icon(Icons.menu_book_outlined),
                 selectedIcon: const Icon(Icons.menu_book_rounded),
-                label: tr('\u0627\u0644\u0645\u062f\u0648\u0646\u0627\u062a', 'Blogs'),
+                label: tr(
+                  '\u0627\u0644\u0645\u062f\u0648\u0646\u0627\u062a',
+                  'Blogs',
+                ),
               ),
               NavigationDestination(
                 icon: const Icon(Icons.settings_outlined),
                 selectedIcon: const Icon(Icons.settings_rounded),
-                label: tr('\u0627\u0644\u0625\u0639\u062f\u0627\u062f\u0627\u062a', 'Parametres'),
+                label: tr(
+                  '\u0627\u0644\u0625\u0639\u062f\u0627\u062f\u0627\u062a',
+                  'Parametres',
+                ),
               ),
             ],
           ),
@@ -152,10 +164,19 @@ class _DoctorDashboardView extends StatelessWidget {
           (sum, room) => sum + room.unreadCount,
         );
         final shiftLabel = now.hour < 12
-            ? tr('\u0627\u0644\u062f\u0648\u0627\u0645 \u0627\u0644\u0635\u0628\u0627\u062d\u064a', 'Service du matin')
+            ? tr(
+                '\u0627\u0644\u062f\u0648\u0627\u0645 \u0627\u0644\u0635\u0628\u0627\u062d\u064a',
+                'Service du matin',
+              )
             : now.hour < 18
-            ? tr('\u062f\u0648\u0627\u0645 \u0628\u0639\u062f \u0627\u0644\u0638\u0647\u0631', 'Service de l\'apres-midi')
-            : tr('\u0627\u0644\u062f\u0648\u0627\u0645 \u0627\u0644\u0645\u0633\u0627\u0626\u064a', 'Service du soir');
+            ? tr(
+                '\u062f\u0648\u0627\u0645 \u0628\u0639\u062f \u0627\u0644\u0638\u0647\u0631',
+                'Service de l\'apres-midi',
+              )
+            : tr(
+                '\u0627\u0644\u062f\u0648\u0627\u0645 \u0627\u0644\u0645\u0633\u0627\u0626\u064a',
+                'Service du soir',
+              );
 
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -169,9 +190,18 @@ class _DoctorDashboardView extends StatelessWidget {
               shiftLabel: shiftLabel,
               isOnline: isOnline,
               onToggleOnline: onToggleOnline,
-              onlineLabel: tr('\u0645\u062a\u0627\u062d \u0627\u0644\u0622\u0646', 'Disponible maintenant'),
-              offlineLabel: tr('\u063a\u064a\u0631 \u0645\u062a\u0627\u062d \u062d\u0627\u0644\u064a\u0627\u064b', 'Indisponible'),
-              availabilityTitle: tr('\u062a\u0648\u0641\u0631 \u0627\u0644\u0627\u0633\u062a\u0634\u0627\u0631\u0629', 'Disponibilite de consultation',),
+              onlineLabel: tr(
+                '\u0645\u062a\u0627\u062d \u0627\u0644\u0622\u0646',
+                'Disponible maintenant',
+              ),
+              offlineLabel: tr(
+                '\u063a\u064a\u0631 \u0645\u062a\u0627\u062d \u062d\u0627\u0644\u064a\u0627\u064b',
+                'Indisponible',
+              ),
+              availabilityTitle: tr(
+                '\u062a\u0648\u0641\u0631 \u0627\u0644\u0627\u0633\u062a\u0634\u0627\u0631\u0629',
+                'Disponibilite de consultation',
+              ),
             ),
             const SizedBox(height: 12),
             LayoutBuilder(
@@ -185,7 +215,10 @@ class _DoctorDashboardView extends StatelessWidget {
                       width: tileWidth,
                       child: _MetricCard(
                         icon: Icons.today_rounded,
-                        title: tr('\u0627\u0633\u062a\u0634\u0627\u0631\u0627\u062a \u0627\u0644\u064a\u0648\u0645', 'Consultations du jour',),
+                        title: tr(
+                          '\u0627\u0633\u062a\u0634\u0627\u0631\u0627\u062a \u0627\u0644\u064a\u0648\u0645',
+                          'Consultations du jour',
+                        ),
                         value: '$todayCount',
                         accent: SihhaPalette.primary,
                       ),
@@ -194,7 +227,10 @@ class _DoctorDashboardView extends StatelessWidget {
                       width: tileWidth,
                       child: _MetricCard(
                         icon: Icons.forum_rounded,
-                        title: tr('\u0627\u0644\u063a\u0631\u0641 \u0627\u0644\u0646\u0634\u0637\u0629', 'Salles actives'),
+                        title: tr(
+                          '\u0627\u0644\u063a\u0631\u0641 \u0627\u0644\u0646\u0634\u0637\u0629',
+                          'Salles actives',
+                        ),
                         value: '$activeCount',
                         accent: SihhaPalette.secondary,
                       ),
@@ -203,7 +239,10 @@ class _DoctorDashboardView extends StatelessWidget {
                       width: tileWidth,
                       child: _MetricCard(
                         icon: Icons.pending_actions_rounded,
-                        title: tr('\u062a\u062d\u062a\u0627\u062c \u0645\u062a\u0627\u0628\u0639\u0629', 'Suivi requis'),
+                        title: tr(
+                          '\u062a\u062d\u062a\u0627\u062c \u0645\u062a\u0627\u0628\u0639\u0629',
+                          'Suivi requis',
+                        ),
                         value: '$waitingCount',
                         accent: const Color(0xFFEA580C),
                       ),
@@ -212,7 +251,10 @@ class _DoctorDashboardView extends StatelessWidget {
                       width: tileWidth,
                       child: _MetricCard(
                         icon: Icons.mark_chat_unread_rounded,
-                        title: tr('\u0631\u0633\u0627\u0626\u0644 \u063a\u064a\u0631 \u0645\u0642\u0631\u0648\u0621\u0629', 'Messages non lus'),
+                        title: tr(
+                          '\u0631\u0633\u0627\u0626\u0644 \u063a\u064a\u0631 \u0645\u0642\u0631\u0648\u0621\u0629',
+                          'Messages non lus',
+                        ),
                         value: '$unreadCount',
                         accent: const Color(0xFF4F46E5),
                       ),
@@ -223,8 +265,14 @@ class _DoctorDashboardView extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             _SectionHeader(
-              title: tr('\u0622\u062e\u0631 \u0627\u0644\u0645\u062d\u0627\u062f\u062b\u0627\u062a', 'Conversations recentes'),
-              subtitle: tr('\u0627\u0641\u062a\u062d \u063a\u0631\u0641\u0629 \u0644\u0645\u062a\u0627\u0628\u0639\u0629 \u0627\u0644\u0627\u0633\u062a\u0634\u0627\u0631\u0629 \u0627\u0644\u0637\u0628\u064a\u0629.', 'Ouvrez une salle pour poursuivre le suivi medical.',),
+              title: tr(
+                '\u0622\u062e\u0631 \u0627\u0644\u0645\u062d\u0627\u062f\u062b\u0627\u062a',
+                'Conversations recentes',
+              ),
+              subtitle: tr(
+                '\u0627\u0641\u062a\u062d \u063a\u0631\u0641\u0629 \u0644\u0645\u062a\u0627\u0628\u0639\u0629 \u0627\u0644\u0627\u0633\u062a\u0634\u0627\u0631\u0629 \u0627\u0644\u0637\u0628\u064a\u0629.',
+                'Ouvrez une salle pour poursuivre le suivi medical.',
+              ),
             ),
             const SizedBox(height: 10),
             if (rooms.isEmpty)
@@ -240,7 +288,10 @@ class _DoctorDashboardView extends StatelessWidget {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          tr('\u0644\u0627 \u062a\u0648\u062c\u062f \u0645\u062d\u0627\u062f\u062b\u0627\u062a \u0628\u0639\u062f.', 'Aucune discussion pour le moment.',),
+                          tr(
+                            '\u0644\u0627 \u062a\u0648\u062c\u062f \u0645\u062d\u0627\u062f\u062b\u0627\u062a \u0628\u0639\u062f.',
+                            'Aucune discussion pour le moment.',
+                          ),
                           textAlign: TextAlign.center,
                         ),
                       ],
@@ -260,21 +311,35 @@ class _DoctorDashboardView extends StatelessWidget {
                   child: _InboxRoomCard(
                     patientName: room.patientName,
                     subtitle: room.lastMessage.trim().isEmpty
-                        ? tr('\u0627\u0628\u062f\u0623 \u0627\u0644\u0645\u062d\u0627\u062f\u062b\u0629 \u0627\u0644\u0622\u0646', 'Commencez la discussion',)
+                        ? tr(
+                            '\u0627\u0628\u062f\u0623 \u0627\u0644\u0645\u062d\u0627\u062f\u062b\u0629 \u0627\u0644\u0622\u0646',
+                            'Commencez la discussion',
+                          )
                         : room.lastMessage,
                     timeLabel: timeLabel,
                     unreadCount: room.unreadCount,
                     onTap: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (_) =>
+                          builder: (_) => MultiProvider(
+                            providers: [
                               ChangeNotifierProvider<ChatProvider>.value(
                                 value: context.read<ChatProvider>(),
-                                child: ChatScreen(
-                                  room: room,
-                                  currentUser: user,
-                                ),
                               ),
+                              ChangeNotifierProvider<AudioProvider>.value(
+                                value: context.read<AudioProvider>(),
+                              ),
+                              ChangeNotifierProvider<LiveSessionProvider>.value(
+                                value: context.read<LiveSessionProvider>(),
+                              ),
+                              ChangeNotifierProvider<
+                                ConsultationProvider
+                              >.value(
+                                value: context.read<ConsultationProvider>(),
+                              ),
+                            ],
+                            child: ChatScreen(room: room, currentUser: user),
+                          ),
                         ),
                       );
                     },

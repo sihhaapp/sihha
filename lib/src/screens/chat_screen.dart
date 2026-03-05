@@ -13,7 +13,10 @@ import '../models/chat_message.dart';
 import '../models/chat_room.dart';
 import '../models/consultation_request.dart';
 import '../providers/app_settings_provider.dart';
+import '../providers/audio_provider.dart';
 import '../providers/chat_provider.dart';
+import '../providers/consultation_provider.dart';
+import '../providers/live_session_provider.dart';
 import '../theme/sihha_theme.dart';
 import '../widgets/message_bubble.dart';
 import 'livekit_call_screen.dart';
@@ -57,6 +60,8 @@ class _ChatScreenState extends State<ChatScreen>
   final FlutterRingtonePlayer _ringtonePlayer = FlutterRingtonePlayer();
 
   late final ChatProvider _chatProvider;
+  late final LiveSessionProvider _liveProvider;
+  late final ConsultationProvider _consultationProvider;
 
   late final AnimationController _bgController;
   late final AnimationController _ringController;
@@ -93,6 +98,8 @@ class _ChatScreenState extends State<ChatScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _chatProvider = context.read<ChatProvider>();
+    _liveProvider = context.read<LiveSessionProvider>();
+    _consultationProvider = context.read<ConsultationProvider>();
     _roomClosed = widget.room.isClosed;
     _bgController = AnimationController(
       vsync: this,
@@ -107,7 +114,7 @@ class _ChatScreenState extends State<ChatScreen>
       liveMode: true,
     );
     _loadConsultation();
-    unawaited(_chatProvider.setPresence(roomId: widget.room.id, active: true));
+    unawaited(_liveProvider.setPresence(roomId: widget.room.id, active: true));
     _inputFocusNode.addListener(() {
       if (_inputFocusNode.hasFocus) {
         _scrollToBottomRobust();
@@ -121,16 +128,19 @@ class _ChatScreenState extends State<ChatScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final provider = _chatProvider;
     if (state == AppLifecycleState.resumed) {
-      unawaited(provider.setPresence(roomId: widget.room.id, active: true));
+      unawaited(
+        _liveProvider.setPresence(roomId: widget.room.id, active: true),
+      );
       unawaited(_refreshStatus());
       return;
     }
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
-      unawaited(provider.setPresence(roomId: widget.room.id, active: false));
+      unawaited(
+        _liveProvider.setPresence(roomId: widget.room.id, active: false),
+      );
     }
   }
 
@@ -149,9 +159,9 @@ class _ChatScreenState extends State<ChatScreen>
   @override
   void dispose() {
     if (_outgoingRequest) {
-      unawaited(_chatProvider.stopLiveConversation(widget.room.id));
+      unawaited(_liveProvider.stopLiveConversation(widget.room.id));
     }
-    unawaited(_chatProvider.setPresence(roomId: widget.room.id, active: false));
+    unawaited(_liveProvider.setPresence(roomId: widget.room.id, active: false));
     _statusTimer?.cancel();
     _textController.dispose();
     _inputFocusNode.dispose();
@@ -164,7 +174,7 @@ class _ChatScreenState extends State<ChatScreen>
   }
 
   Future<void> _loadConsultation() async {
-    final cached = _chatProvider.getCachedConsultation(widget.room.id);
+    final cached = _consultationProvider.getCachedConsultation(widget.room.id);
     if (cached != null && mounted) {
       setState(() {
         _consultation = cached;
@@ -176,11 +186,11 @@ class _ChatScreenState extends State<ChatScreen>
     final initial = widget.initialConsultation;
     if (initial != null) {
       _consultation = initial;
-      _chatProvider.rememberConsultation(widget.room.id, initial);
+      _consultationProvider.rememberConsultation(widget.room.id, initial);
       setState(() => _loadingConsultation = false);
       return;
     }
-    final req = await _chatProvider.fetchConsultationRequestByRoom(
+    final req = await _consultationProvider.fetchConsultationRequestByRoom(
       widget.room.id,
     );
     if (!mounted) return;
@@ -188,7 +198,10 @@ class _ChatScreenState extends State<ChatScreen>
       // Keep cached consultation data unless server returns a newer payload.
       _consultation = req ?? _consultation;
       if (_consultation != null) {
-        _chatProvider.rememberConsultation(widget.room.id, _consultation!);
+        _consultationProvider.rememberConsultation(
+          widget.room.id,
+          _consultation!,
+        );
       }
       _loadingConsultation = false;
     });
@@ -203,7 +216,7 @@ class _ChatScreenState extends State<ChatScreen>
   }
 
   Future<void> _refreshStatus() async {
-    final session = await context.read<ChatProvider>().fetchLiveStatus(
+    final session = await context.read<LiveSessionProvider>().fetchLiveStatus(
       widget.room.id,
     );
     if (!mounted || session == null) return;
@@ -367,10 +380,7 @@ class _ChatScreenState extends State<ChatScreen>
                                     value: g,
                                     child: Text(
                                       g == RequestGender.male
-                                          ? tr(
-                                              '\u0630\u0643\u0631',
-                                              'Homme',
-                                            )
+                                          ? tr('\u0630\u0643\u0631', 'Homme')
                                           : tr(
                                               '\u0623\u0646\u062b\u0649',
                                               'Femme',
@@ -414,10 +424,7 @@ class _ChatScreenState extends State<ChatScreen>
                               value: l,
                               child: Text(
                                 l == SpokenLanguage.ar
-                                    ? tr(
-                                        '\u0639\u0631\u0628\u064a',
-                                        'Arabe',
-                                      )
+                                    ? tr('\u0639\u0631\u0628\u064a', 'Arabe')
                                     : l == SpokenLanguage.fr
                                     ? tr(
                                         '\u0641\u0631\u0646\u0633\u064a',
@@ -455,10 +462,7 @@ class _ChatScreenState extends State<ChatScreen>
                             onPressed: () =>
                                 Navigator.of(sheetContext).pop(false),
                             child: Text(
-                              tr(
-                                '\u0625\u0644\u063a\u0627\u0621',
-                                'Annuler',
-                              ),
+                              tr('\u0625\u0644\u063a\u0627\u0621', 'Annuler'),
                             ),
                           ),
                         ),
@@ -468,10 +472,7 @@ class _ChatScreenState extends State<ChatScreen>
                             onPressed: () =>
                                 Navigator.of(sheetContext).pop(true),
                             child: Text(
-                              tr(
-                                '\u062d\u0641\u0638',
-                                'Enregistrer',
-                              ),
+                              tr('\u062d\u0641\u0638', 'Enregistrer'),
                             ),
                           ),
                         ),
@@ -504,7 +505,7 @@ class _ChatScreenState extends State<ChatScreen>
       'symptoms': trimmedSymptoms.isEmpty ? c.symptoms : trimmedSymptoms,
     };
 
-    final updated = await _chatProvider.updateConsultationRequest(
+    final updated = await _consultationProvider.updateConsultationRequest(
       requestId: c.id,
       payload: payload,
     );
@@ -525,6 +526,7 @@ class _ChatScreenState extends State<ChatScreen>
         );
     }
   }
+
   Future<void> _sendText() async {
     final text = _textController.text.trim();
     if (text.isEmpty || _roomClosed) return;
@@ -602,9 +604,9 @@ class _ChatScreenState extends State<ChatScreen>
     if (_incomingRequest) {
       return;
     }
-    final ok = await context.read<ChatProvider>().requestLiveConversation(
-      widget.room.id,
-    );
+    final ok = await context
+        .read<LiveSessionProvider>()
+        .requestLiveConversation(widget.room.id);
     _showErrorIfAny();
     if (!ok || !mounted) return;
     setState(() {
@@ -614,7 +616,7 @@ class _ChatScreenState extends State<ChatScreen>
   }
 
   Future<void> _cancelOutgoingRequest() async {
-    final ok = await context.read<ChatProvider>().stopLiveConversation(
+    final ok = await context.read<LiveSessionProvider>().stopLiveConversation(
       widget.room.id,
     );
     _showErrorIfAny();
@@ -626,7 +628,7 @@ class _ChatScreenState extends State<ChatScreen>
   }
 
   Future<void> _acceptIncomingCall() async {
-    final ok = await context.read<ChatProvider>().acceptLiveConversation(
+    final ok = await context.read<LiveSessionProvider>().acceptLiveConversation(
       widget.room.id,
     );
     _showErrorIfAny();
@@ -638,7 +640,9 @@ class _ChatScreenState extends State<ChatScreen>
   Future<void> _rejectIncomingCall() async {
     await _stopIncomingRingtone();
     if (!mounted) return;
-    await context.read<ChatProvider>().rejectLiveConversation(widget.room.id);
+    await context.read<LiveSessionProvider>().rejectLiveConversation(
+      widget.room.id,
+    );
     _showErrorIfAny();
     unawaited(_refreshStatus());
   }
@@ -665,7 +669,7 @@ class _ChatScreenState extends State<ChatScreen>
 
   Future<void> _openLiveKitCall({required bool stopSessionOnReturn}) async {
     if (!mounted) return;
-    final payload = await context.read<ChatProvider>().joinLiveSession(
+    final payload = await context.read<LiveSessionProvider>().joinLiveSession(
       widget.room.id,
     );
     _showErrorIfAny();
@@ -709,7 +713,9 @@ class _ChatScreenState extends State<ChatScreen>
     );
     if (!mounted) return;
     if (stopSessionOnReturn && (shouldStopSession ?? true)) {
-      await context.read<ChatProvider>().stopLiveConversation(widget.room.id);
+      await context.read<LiveSessionProvider>().stopLiveConversation(
+        widget.room.id,
+      );
       _showErrorIfAny();
     }
     if (!mounted) return;
@@ -768,13 +774,17 @@ class _ChatScreenState extends State<ChatScreen>
 
   void _showErrorIfAny() {
     if (!mounted) return;
-    final provider = context.read<ChatProvider>();
-    final error = provider.errorMessage;
+    final chatError = context.read<ChatProvider>().errorMessage;
+    final liveError = context.read<LiveSessionProvider>().errorMessage;
+    final consultError = context.read<ConsultationProvider>().errorMessage;
+    final error = chatError ?? liveError ?? consultError;
     if (error == null || error.isEmpty) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(error)));
-    provider.clearError();
+    context.read<ChatProvider>().clearError();
+    context.read<LiveSessionProvider>().clearError();
+    context.read<ConsultationProvider>().clearError();
   }
 
   void _scrollToBottom({bool animated = true, Duration delay = Duration.zero}) {
@@ -1034,10 +1044,10 @@ class _ChatScreenState extends State<ChatScreen>
                                   final isPending = m.id.startsWith(
                                     'pending-image-',
                                   );
-                                  final provider = context
-                                      .watch<ChatProvider>();
+                                  final audioProvider = context
+                                      .watch<AudioProvider>();
                                   final isPlaying =
-                                      provider.activeAudioUrl == m.content;
+                                      audioProvider.activeAudioUrl == m.content;
                                   return Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.stretch,
@@ -1052,9 +1062,8 @@ class _ChatScreenState extends State<ChatScreen>
                                         onAudioTap:
                                             !isPending &&
                                                 m.type == MessageType.audio
-                                            ? () => provider.playOrPauseAudio(
-                                                m.content,
-                                              )
+                                            ? () => audioProvider
+                                                  .playOrPauseAudio(m.content)
                                             : null,
                                       ),
                                     ],
@@ -1589,12 +1598,7 @@ class _IncomingCallPanel extends StatelessWidget {
                         Icons.call_end_rounded,
                         color: Color(0xFFD32F2F),
                       ),
-                      label: Text(
-                        tr(
-                          '\u0631\u0641\u0636',
-                          'Refuser',
-                        ),
-                      ),
+                      label: Text(tr('\u0631\u0641\u0636', 'Refuser')),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -1684,12 +1688,7 @@ class _OutgoingCallPanel extends StatelessWidget {
               ),
               TextButton(
                 onPressed: onCancel,
-                child: Text(
-                  tr(
-                    '\u0625\u0644\u063A\u0627\u0621',
-                    'Annuler',
-                  ),
-                ),
+                child: Text(tr('\u0625\u0644\u063A\u0627\u0621', 'Annuler')),
               ),
             ],
           ),
@@ -1873,7 +1872,10 @@ class _WhatsAppComposerBar extends StatelessWidget {
             children: [
               _ComposerActionButton(
                 icon: Icons.photo_library_rounded,
-                tooltip: tr('\u0625\u0631\u0633\u0627\u0644 \u0635\u0648\u0631\u0629', 'Envoyer une image'),
+                tooltip: tr(
+                  '\u0625\u0631\u0633\u0627\u0644 \u0635\u0648\u0631\u0629',
+                  'Envoyer une image',
+                ),
                 onPressed: onPickImage,
                 size: actionSize,
                 backgroundColor: isDark
@@ -2153,19 +2155,31 @@ class _ConsultationCardState extends State<_ConsultationCard> {
                       ),
                       const SizedBox(height: 6),
                       _line(
-                        widget.tr('\u0627\u0644\u0645\u0631\u064a\u0636', 'Patient'),
+                        widget.tr(
+                          '\u0627\u0644\u0645\u0631\u064a\u0636',
+                          'Patient',
+                        ),
                         consultation.patientName,
                       ),
                       _line(
-                        widget.tr('\u0627\u0644\u0645\u0633\u062a\u0641\u064a\u062f', 'Beneficiaire'),
+                        widget.tr(
+                          '\u0627\u0644\u0645\u0633\u062a\u0641\u064a\u062f',
+                          'Beneficiaire',
+                        ),
                         consultation.subjectName,
                       ),
                       _line(
-                        widget.tr('\u0627\u0644\u0639\u0645\u0631 / \u0627\u0644\u062c\u0646\u0633', 'Age / sexe'),
+                        widget.tr(
+                          '\u0627\u0644\u0639\u0645\u0631 / \u0627\u0644\u062c\u0646\u0633',
+                          'Age / sexe',
+                        ),
                         '${consultation.ageYears} / ${consultation.gender == RequestGender.male ? widget.tr('\u0630\u0643\u0631', 'Homme') : widget.tr('\u0623\u0646\u062b\u0649', 'Femme')}',
                       ),
                       _line(
-                        widget.tr('\u0627\u0644\u0648\u0632\u0646 (\u0643\u063a)', 'Poids (kg)'),
+                        widget.tr(
+                          '\u0627\u0644\u0648\u0632\u0646 (\u0643\u063a)',
+                          'Poids (kg)',
+                        ),
                         consultation.weightKg.toString(),
                       ),
                       _line(
@@ -2173,8 +2187,14 @@ class _ConsultationCardState extends State<_ConsultationCard> {
                         consultation.spokenLanguage == SpokenLanguage.ar
                             ? widget.tr('\u0639\u0631\u0628\u064a', 'Arabe')
                             : consultation.spokenLanguage == SpokenLanguage.fr
-                            ? widget.tr('\u0641\u0631\u0646\u0633\u064a', 'Francais')
-                            : widget.tr('\u0645\u0632\u062f\u0648\u062c', 'Bilingue'),
+                            ? widget.tr(
+                                '\u0641\u0631\u0646\u0633\u064a',
+                                'Francais',
+                              )
+                            : widget.tr(
+                                '\u0645\u0632\u062f\u0648\u062c',
+                                'Bilingue',
+                              ),
                       ),
                       const SizedBox(height: 8),
                       _buildSymptomsSection(
@@ -2216,7 +2236,10 @@ class _ConsultationCardState extends State<_ConsultationCard> {
                 children: [
                   Expanded(
                     child: Text(
-                      widget.tr('\u0627\u0644\u0623\u0639\u0631\u0627\u0636', 'Symptomes'),
+                      widget.tr(
+                        '\u0627\u0644\u0623\u0639\u0631\u0627\u0636',
+                        'Symptomes',
+                      ),
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
                   ),
@@ -2244,7 +2267,9 @@ class _ConsultationCardState extends State<_ConsultationCard> {
                     child: Text(
                       symptomsText,
                       style: TextStyle(
-                        color: isDark ? Colors.white70 : const Color(0xFF334155),
+                        color: isDark
+                            ? Colors.white70
+                            : const Color(0xFF334155),
                       ),
                     ),
                   )
@@ -2319,4 +2344,3 @@ class _ClosedRoomPanel extends StatelessWidget {
     );
   }
 }
-

@@ -1,3 +1,5 @@
+import '../utils/api_response_helpers.dart';
+import '../utils/date_parser.dart';
 import '../utils/media_url_normalizer.dart';
 
 class HealthBlog {
@@ -59,6 +61,16 @@ class HealthBlog {
   }
 
   factory HealthBlog.fromMap(String id, Map<String, dynamic> map) {
+    String readMedia(List<String> keys) {
+      for (final key in keys) {
+        final value = normalizeBackendMediaUrl(map[key]);
+        if (value.isNotEmpty) {
+          return value;
+        }
+      }
+      return '';
+    }
+
     return HealthBlog(
       id: id,
       title: (map['title'] as String?)?.trim() ?? '',
@@ -66,22 +78,39 @@ class HealthBlog {
       category: (map['category'] as String?)?.trim() ?? '',
       authorId: (map['authorId'] as String?)?.trim() ?? '',
       authorName: (map['authorName'] as String?)?.trim() ?? 'Doctor',
-      profileImageUrl: normalizeBackendMediaUrl(map['profileImageUrl']),
-      expressiveImageUrl1: normalizeBackendMediaUrl(
-        map['expressiveImageUrl1'],
-      ),
-      expressiveImageUrl2: normalizeBackendMediaUrl(
-        map['expressiveImageUrl2'],
-      ),
-      expressiveImageUrl3: normalizeBackendMediaUrl(
-        map['expressiveImageUrl3'],
-      ),
-      reactionsCount: _readInt(map['reactionsCount']),
-      commentsCount: _readInt(map['commentsCount']),
-      sharesCount: _readInt(map['sharesCount']),
+      profileImageUrl: readMedia([
+        'profileImageUrl',
+        'profile_image_url',
+        'authorPhotoUrl',
+        'author_photo_url',
+      ]),
+      expressiveImageUrl1: readMedia([
+        'expressiveImageUrl1',
+        'expressive_image_url1',
+        'expressive_image_url_1',
+        'imageUrl',
+        'image_url',
+      ]),
+      expressiveImageUrl2: readMedia([
+        'expressiveImageUrl2',
+        'expressive_image_url2',
+        'expressive_image_url_2',
+        'imageUrl2',
+        'image_url_2',
+      ]),
+      expressiveImageUrl3: readMedia([
+        'expressiveImageUrl3',
+        'expressive_image_url3',
+        'expressive_image_url_3',
+        'imageUrl3',
+        'image_url_3',
+      ]),
+      reactionsCount: readInt(map['reactionsCount']),
+      commentsCount: readInt(map['commentsCount']),
+      sharesCount: readInt(map['sharesCount']),
       myReaction: (map['myReaction'] as String?)?.trim() ?? '',
-      publishedAt: _parseDate(map['publishedAt']),
-      updatedAt: _parseDate(map['updatedAt']),
+      publishedAt: parseDate(map['publishedAt']),
+      updatedAt: parseDate(map['updatedAt']),
     );
   }
 
@@ -90,42 +119,4 @@ class HealthBlog {
     expressiveImageUrl2.trim(),
     expressiveImageUrl3.trim(),
   ].where((url) => url.isNotEmpty).toList(growable: false);
-}
-
-DateTime _parseDate(dynamic value) {
-  if (value is DateTime) {
-    return value;
-  }
-  if (value is String) {
-    final parsed = DateTime.tryParse(value);
-    if (parsed != null) {
-      return parsed;
-    }
-  }
-  if (value is int) {
-    return DateTime.fromMillisecondsSinceEpoch(value);
-  }
-  if (value is num) {
-    return DateTime.fromMillisecondsSinceEpoch(value.toInt());
-  }
-  if (value is Map<String, dynamic>) {
-    final seconds = value['_seconds'] ?? value['seconds'];
-    if (seconds is int) {
-      return DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
-    }
-  }
-  return DateTime.now();
-}
-
-int _readInt(dynamic value) {
-  if (value is int) {
-    return value;
-  }
-  if (value is num) {
-    return value.toInt();
-  }
-  if (value is String) {
-    return int.tryParse(value.trim()) ?? 0;
-  }
-  return 0;
 }

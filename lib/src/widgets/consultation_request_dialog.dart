@@ -8,7 +8,7 @@ import '../constants/chad_states.dart';
 import '../models/app_user.dart';
 import '../models/consultation_request.dart';
 import '../providers/app_settings_provider.dart';
-import '../providers/chat_provider.dart';
+import '../providers/audio_provider.dart';
 import '../services/voice_service.dart';
 
 class ConsultationRequestInput {
@@ -43,7 +43,7 @@ Future<ConsultationRequestInput?> showConsultationRequestDialog({
 }) async {
   final settings = context.read<AppSettingsProvider>();
   final tr = settings.tr;
-  final chat = context.read<ChatProvider>();
+  final audio = context.read<AudioProvider>();
   final voice = VoiceService();
   final player = AudioPlayer();
   final nameCtrl = TextEditingController();
@@ -101,7 +101,7 @@ Future<ConsultationRequestInput?> showConsultationRequestDialog({
             });
             final path = await voice.stopRecording();
             if (path != null && path.isNotEmpty) {
-              final url = await chat.uploadConsultationSymptomsAudio(
+              final url = await audio.uploadConsultationSymptomsAudio(
                 file: File(path),
               );
               final sec = DateTime.now()
@@ -176,9 +176,7 @@ Future<ConsultationRequestInput?> showConsultationRequestDialog({
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    tr('طلب استشارة جديدة',
-                      'Nouvelle demande de consultation',
-                    ),
+                    tr('طلب استشارة جديدة', 'Nouvelle demande de consultation'),
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
@@ -186,7 +184,8 @@ Future<ConsultationRequestInput?> showConsultationRequestDialog({
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    tr('الدكتور المستهدف: ${doctor.name}',
+                    tr(
+                      'الدكتور المستهدف: ${doctor.name}',
                       'Medecin cible: ${doctor.name}',
                     ),
                     style: const TextStyle(fontWeight: FontWeight.w600),
@@ -267,10 +266,7 @@ Future<ConsultationRequestInput?> showConsultationRequestDialog({
                           ? RequestPregnancyStatus.notSure
                           : p,
                       decoration: InputDecoration(
-                        labelText: tr(
-                          'حالة الحمل',
-                          'Statut de grossesse',
-                        ),
+                        labelText: tr('حالة الحمل', 'Statut de grossesse'),
                       ),
                       items: [
                         DropdownMenuItem(
@@ -378,9 +374,7 @@ Future<ConsultationRequestInput?> showConsultationRequestDialog({
                             }
                           }),
                     icon: const Icon(Icons.add_rounded),
-                    label: Text(
-                      tr('إضافة العرض', 'Ajouter le symptome'),
-                    ),
+                    label: Text(tr('إضافة العرض', 'Ajouter le symptome')),
                   ),
                   if (picked.isNotEmpty)
                     Wrap(
@@ -416,10 +410,7 @@ Future<ConsultationRequestInput?> showConsultationRequestDialog({
                           icon: Icon(rec ? Icons.stop_circle : Icons.mic),
                           label: Text(
                             rec
-                                ? tr(
-                                    'إيقاف ورفع',
-                                    'Arreter et televerser',
-                                  )
+                                ? tr('إيقاف ورفع', 'Arreter et televerser')
                                 : tr('حفظ', 'Enregistrer'),
                           ),
                         ),
@@ -473,9 +464,7 @@ Future<ConsultationRequestInput?> showConsultationRequestDialog({
                             await toggleRec();
                           },
                           icon: const Icon(Icons.fiber_manual_record),
-                          label: Text(
-                            tr('إعادة التسجيل', 'Reenregistrer'),
-                          ),
+                          label: Text(tr('إعادة التسجيل', 'Reenregistrer')),
                         ),
                         IconButton(
                           onPressed: () async {
@@ -517,7 +506,8 @@ Future<ConsultationRequestInput?> showConsultationRequestDialog({
 
                               if (resolvedName.length < 2) {
                                 return snack(
-                                  tr('يرجى إدخال اسم صحيح.',
+                                  tr(
+                                    'يرجى إدخال اسم صحيح.',
                                     'Veuillez saisir un nom valide.',
                                   ),
                                 );
@@ -534,7 +524,8 @@ Future<ConsultationRequestInput?> showConsultationRequestDialog({
 
                               if (w == null || w < 1 || w > 400) {
                                 return snack(
-                                  tr('الوزن يجب أن يكون بين 1 و 400.',
+                                  tr(
+                                    'الوزن يجب أن يكون بين 1 و 400.',
                                     'Le poids doit etre entre 1 et 400.',
                                   ),
                                 );
@@ -600,9 +591,7 @@ Future<ConsultationRequestInput?> showConsultationRequestDialog({
                               Navigator.of(sheetCtx).pop();
                             },
                       icon: const Icon(Icons.send_rounded),
-                      label: Text(
-                        tr('إرسال الطلب', 'Envoyer la demande'),
-                      ),
+                      label: Text(tr('إرسال الطلب', 'Envoyer la demande')),
                     ),
                   ),
                 ],

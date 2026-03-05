@@ -1,5 +1,7 @@
-import '../utils/text_normalizer.dart';
+import '../utils/api_response_helpers.dart';
+import '../utils/date_parser.dart';
 import '../utils/media_url_normalizer.dart';
+import '../utils/text_normalizer.dart';
 
 enum UserRole {
   patient,
@@ -82,57 +84,22 @@ class AppUser {
           : 'User',
       phoneNumber: _readPhoneNumber(map),
       role: UserRole.fromValue(map['role'] as String?),
-      createdAt: _parseDate(map['createdAt']),
-      photoUrl: _normalizePhotoUrl(map['photoUrl']),
-      isAdmin: _readBool(map['isAdmin']),
-      isDisabled: _readBool(map['isDisabled']),
+      createdAt: parseDate(map['createdAt']),
+      photoUrl: normalizeBackendMediaUrl(map['photoUrl']),
+      isAdmin: readBool(map['isAdmin']),
+      isDisabled: readBool(map['isDisabled']),
       specialty: normalizePossiblyMojibake(
         (map['specialty'] as String?)?.trim() ?? '',
       ),
       hospitalName: normalizePossiblyMojibake(
         (map['hospitalName'] as String?)?.trim() ?? '',
       ),
-      experienceYears: _readInt(map['experienceYears']),
-      studyYears: _readInt(map['studyYears']),
-      disabledAt: _readNullableDate(map['disabledAt']),
-      lastSeenAt: _readNullableDate(map['lastSeenAt']),
+      experienceYears: readInt(map['experienceYears']),
+      studyYears: readInt(map['studyYears']),
+      disabledAt: parseNullableDate(map['disabledAt']),
+      lastSeenAt: parseNullableDate(map['lastSeenAt']),
     );
   }
-}
-
-DateTime _parseDate(dynamic value) {
-  if (value is DateTime) {
-    return value;
-  }
-  if (value is String) {
-    final parsed = DateTime.tryParse(value);
-    if (parsed != null) {
-      return parsed;
-    }
-  }
-  if (value is int) {
-    return DateTime.fromMillisecondsSinceEpoch(value);
-  }
-  if (value is num) {
-    return DateTime.fromMillisecondsSinceEpoch(value.toInt());
-  }
-  if (value is Map<String, dynamic>) {
-    final seconds = value['_seconds'] ?? value['seconds'];
-    if (seconds is int) {
-      return DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
-    }
-  }
-  return DateTime.now();
-}
-
-DateTime? _readNullableDate(dynamic value) {
-  if (value == null) {
-    return null;
-  }
-  if (value is String && value.trim().isEmpty) {
-    return null;
-  }
-  return _parseDate(value);
 }
 
 String _readPhoneNumber(Map<String, dynamic> map) {
@@ -148,35 +115,4 @@ String _readPhoneNumber(Map<String, dynamic> map) {
   }
 
   return '';
-}
-
-int _readInt(dynamic value) {
-  if (value is int) {
-    return value;
-  }
-  if (value is num) {
-    return value.toInt();
-  }
-  if (value is String) {
-    return int.tryParse(value.trim()) ?? 0;
-  }
-  return 0;
-}
-
-bool _readBool(dynamic value) {
-  if (value is bool) {
-    return value;
-  }
-  if (value is num) {
-    return value != 0;
-  }
-  if (value is String) {
-    final normalized = value.trim().toLowerCase();
-    return normalized == 'true' || normalized == '1' || normalized == 'yes';
-  }
-  return false;
-}
-
-String _normalizePhotoUrl(dynamic value) {
-  return normalizeBackendMediaUrl(value);
 }

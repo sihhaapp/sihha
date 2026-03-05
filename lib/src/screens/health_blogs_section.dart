@@ -277,22 +277,13 @@ class DoctorHealthBlogsSection extends StatelessWidget {
   }
 }
 
-enum _BlogImageSlot {
-  expressive1,
-  expressive2,
-  expressive3,
-}
+enum _BlogImageSlot { expressive1, expressive2, expressive3 }
 
 const String _reactionLike = 'like';
 const String _reactionSupport = 'support';
 const String _reactionThanks = 'thanks';
 
-enum _SharePlatform {
-  facebook,
-  x,
-  whatsapp,
-  telegram,
-}
+enum _SharePlatform { facebook, x, whatsapp, telegram }
 
 class DoctorBlogComposerView extends StatefulWidget {
   const DoctorBlogComposerView({
@@ -345,7 +336,9 @@ class _DoctorBlogComposerViewState extends State<DoctorBlogComposerView> {
     setState(() => _uploadingSlot = slot);
 
     try {
-      final imageUrl = await provider.uploadBlogImage(filePath: pickedFile.path);
+      final imageUrl = await provider.uploadBlogImage(
+        filePath: pickedFile.path,
+      );
       if (!mounted) {
         return;
       }
@@ -457,7 +450,8 @@ class _DoctorBlogComposerViewState extends State<DoctorBlogComposerView> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final provider = context.watch<BlogProvider>();
     final isPublishing = provider.isPublishing;
-    final isBusy = isPublishing || _uploadingSlot != null || provider.isUploadingImage;
+    final isBusy =
+        isPublishing || _uploadingSlot != null || provider.isUploadingImage;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
@@ -507,7 +501,10 @@ class _DoctorBlogComposerViewState extends State<DoctorBlogComposerView> {
               DropdownButtonFormField<String>(
                 initialValue: _selectedCategoryAr,
                 decoration: InputDecoration(
-                  labelText: tr('\u0627\u0644\u062a\u0635\u0646\u064a\u0641', 'Categorie'),
+                  labelText: tr(
+                    '\u0627\u0644\u062a\u0635\u0646\u064a\u0641',
+                    'Categorie',
+                  ),
                   prefixIcon: const Icon(Icons.category_rounded),
                 ),
                 items: kBlogCategories
@@ -651,7 +648,10 @@ class _DoctorBlogComposerViewState extends State<DoctorBlogComposerView> {
                             '\u062c\u0627\u0631\u064d \u0627\u0644\u0646\u0634\u0631...',
                             'Publication...',
                           )
-                        : tr('\u0646\u0634\u0631 \u0627\u0644\u0645\u0642\u0627\u0644', 'Publier'),
+                        : tr(
+                            '\u0646\u0634\u0631 \u0627\u0644\u0645\u0642\u0627\u0644',
+                            'Publier',
+                          ),
                   ),
                 ),
               ),
@@ -816,10 +816,18 @@ class _ComposerImageTile extends StatelessWidget {
   }
 }
 
-class _BlogCard extends StatelessWidget {
+class _BlogCard extends StatefulWidget {
   const _BlogCard({required this.blog});
 
   final HealthBlog blog;
+
+  @override
+  State<_BlogCard> createState() => _BlogCardState();
+}
+
+class _BlogCardState extends State<_BlogCard> {
+  static const int _collapsedChars = 260;
+  bool _isExpanded = false;
 
   @override
   Widget build(BuildContext context) {
@@ -828,14 +836,21 @@ class _BlogCard extends StatelessWidget {
     final tr = settings.tr;
     final isArabic = settings.isArabic;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final isReacting = blogProvider.isReactingBlog(blog.id);
-    final isSharing = blogProvider.isSharingBlog(blog.id);
+    final isReacting = blogProvider.isReactingBlog(widget.blog.id);
+    final isSharing = blogProvider.isSharingBlog(widget.blog.id);
     final categoryTitle = localizeBlogCategory(
-      blog.category,
+      widget.blog.category,
       isArabic: isArabic,
     );
-    final excerpt = _buildExcerpt(blog.content);
-    final blogImages = blog.imageUrls;
+    final blogImages = widget.blog.imageUrls;
+
+    final normalizedContent = widget.blog.content
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    final hasMore = normalizedContent.length > _collapsedChars;
+    final visibleContent = _isExpanded || !hasMore
+        ? normalizedContent
+        : '${normalizedContent.substring(0, _collapsedChars)}...';
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -862,7 +877,7 @@ class _BlogCard extends StatelessWidget {
                 backgroundColor: isDark
                     ? Colors.white.withValues(alpha: 0.10)
                     : const Color(0xFFE2EBF2),
-                child: blog.profileImageUrl.trim().isEmpty
+                child: widget.blog.profileImageUrl.trim().isEmpty
                     ? Icon(
                         Icons.person_rounded,
                         color: isDark
@@ -871,7 +886,7 @@ class _BlogCard extends StatelessWidget {
                       )
                     : ClipOval(
                         child: Image.network(
-                          blog.profileImageUrl,
+                          widget.blog.profileImageUrl,
                           width: 40,
                           height: 40,
                           fit: BoxFit.cover,
@@ -892,7 +907,7 @@ class _BlogCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      blog.authorName,
+                      widget.blog.authorName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.tajawal(
@@ -901,7 +916,7 @@ class _BlogCard extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      _formatDate(blog.publishedAt),
+                      _formatDate(widget.blog.publishedAt),
                       style: GoogleFonts.tajawal(
                         color: isDark
                             ? SihhaPalette.textMutedOnDark
@@ -914,7 +929,10 @@ class _BlogCard extends StatelessWidget {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: isDark
                       ? const Color(0xFF1A2B2A)
@@ -925,7 +943,7 @@ class _BlogCard extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      blogCategoryIcon(blog.category),
+                      blogCategoryIcon(widget.blog.category),
                       size: 16,
                       color: isDark
                           ? const Color(0xFF4EDAC7)
@@ -946,56 +964,73 @@ class _BlogCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Text(
-            blog.title,
+            visibleContent,
+            textAlign: TextAlign.justify,
             style: GoogleFonts.tajawal(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
+              height: 1.55,
+              color: isDark
+                  ? SihhaPalette.textOnDark.withValues(alpha: 0.92)
+                  : const Color(0xFF2E4158),
+              fontWeight: FontWeight.w500,
+              fontSize: 15.2,
             ),
           ),
-          if (blogImages.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            if (blogImages.length == 1)
-              _BlogRemoteImage(
-                imageUrl: blogImages.first,
-                fallbackLabel: tr(
-                  '\u0635\u0648\u0631\u0629 \u0627\u0644\u0645\u062f\u0648\u0646\u0629',
-                  'Image article',
+          if (hasMore)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton(
+                onPressed: () => setState(() => _isExpanded = !_isExpanded),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsetsDirectional.only(top: 2, end: 2),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
-              )
-            else
+                child: Text(
+                  _isExpanded
+                      ? tr(
+                          '\u0639\u0631\u0636 \u0623\u0642\u0644',
+                          'Voir moins',
+                        )
+                      : tr('\u0627\u0644\u0645\u0632\u064a\u062f', 'Voir plus'),
+                  style: GoogleFonts.tajawal(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ),
+          if (blogImages.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _BlogCoverImage(
+              imageUrl: blogImages.first,
+              title: widget.blog.title,
+              fallbackLabel: tr(
+                '\u0635\u0648\u0631\u0629 \u0627\u0644\u0645\u062f\u0648\u0646\u0629',
+                'Image article',
+              ),
+            ),
+            if (blogImages.length > 1) ...[
+              const SizedBox(height: 8),
               Row(
-                children: List.generate(blogImages.length, (index) {
+                children: List.generate(blogImages.length - 1, (index) {
+                  final imageIndex = index + 1;
                   return Expanded(
                     child: Padding(
                       padding: EdgeInsetsDirectional.only(
                         start: index == 0 ? 0 : 8,
                       ),
                       child: _BlogRemoteImage(
-                        imageUrl: blogImages[index],
+                        imageUrl: blogImages[imageIndex],
                         fallbackLabel: tr(
-                          '\u0635\u0648\u0631\u0629 ${index + 1}',
-                          'Image ${index + 1}',
+                          '\u0635\u0648\u0631\u0629 ${imageIndex + 1}',
+                          'Image ${imageIndex + 1}',
                         ),
                       ),
                     ),
                   );
                 }),
               ),
-            const SizedBox(height: 10),
-          ] else
-            const SizedBox(height: 10),
-          Text(
-            excerpt,
-            style: GoogleFonts.tajawal(
-              height: 1.45,
-              color: isDark
-                  ? SihhaPalette.textOnDark.withValues(alpha: 0.90)
-                  : const Color(0xFF2E4158),
-              fontWeight: FontWeight.w500,
-            ),
-          ),
+            ],
+          ],
           const SizedBox(height: 12),
           Wrap(
             spacing: 8,
@@ -1010,52 +1045,43 @@ class _BlogCard extends StatelessWidget {
                       value: _reactionLike,
                       child: _BlogReactionMenuItem(
                         icon: Icons.thumb_up_alt_rounded,
-                        label: tr(
-                          '\u0625\u0639\u062c\u0627\u0628',
-                          'Like',
-                        ),
-                        selected: blog.myReaction == _reactionLike,
+                        label: tr('\u0625\u0639\u062c\u0627\u0628', 'Like'),
+                        selected: widget.blog.myReaction == _reactionLike,
                       ),
                     ),
                     PopupMenuItem<String>(
                       value: _reactionSupport,
                       child: _BlogReactionMenuItem(
                         icon: Icons.favorite_rounded,
-                        label: tr(
-                          '\u062f\u0639\u0645',
-                          'Support',
-                        ),
-                        selected: blog.myReaction == _reactionSupport,
+                        label: tr('\u062f\u0639\u0645', 'Support'),
+                        selected: widget.blog.myReaction == _reactionSupport,
                       ),
                     ),
                     PopupMenuItem<String>(
                       value: _reactionThanks,
                       child: _BlogReactionMenuItem(
                         icon: Icons.volunteer_activism_rounded,
-                        label: tr(
-                          '\u0634\u0643\u0631\u0627\u064b',
-                          'Thanks',
-                        ),
-                        selected: blog.myReaction == _reactionThanks,
+                        label: tr('\u0634\u0643\u0631\u0627\u064b', 'Thanks'),
+                        selected: widget.blog.myReaction == _reactionThanks,
                       ),
                     ),
                   ];
                 },
                 child: _BlogActionChip(
                   icon: Icons.favorite_rounded,
-                  label: '${blog.reactionsCount}',
-                  active: blog.myReaction.isNotEmpty,
+                  label: '${widget.blog.reactionsCount}',
+                  active: widget.blog.myReaction.isNotEmpty,
                   busy: isReacting,
                 ),
               ),
               _BlogActionChip(
                 icon: Icons.chat_bubble_rounded,
-                label: '${blog.commentsCount}',
+                label: '${widget.blog.commentsCount}',
                 onTap: () => _openCommentsSheet(context),
               ),
               _BlogActionChip(
                 icon: Icons.share_rounded,
-                label: '${blog.sharesCount}',
+                label: '${widget.blog.sharesCount}',
                 onTap: isSharing ? null : () => _openShareSheet(context),
                 busy: isSharing,
               ),
@@ -1066,10 +1092,13 @@ class _BlogCard extends StatelessWidget {
     );
   }
 
-  Future<void> _handleReaction(BuildContext context, String reactionType) async {
+  Future<void> _handleReaction(
+    BuildContext context,
+    String reactionType,
+  ) async {
     final provider = context.read<BlogProvider>();
     final success = await provider.toggleReaction(
-      blogId: blog.id,
+      blogId: widget.blog.id,
       reactionType: reactionType,
     );
     if (!success && context.mounted) {
@@ -1083,19 +1112,27 @@ class _BlogCard extends StatelessWidget {
   }
 
   Future<void> _openCommentsSheet(BuildContext context) async {
+    final blogProvider = context.read<BlogProvider>();
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => _BlogCommentsSheet(blog: blog),
+      builder: (context) => ChangeNotifierProvider<BlogProvider>.value(
+        value: blogProvider,
+        child: _BlogCommentsSheet(blog: widget.blog),
+      ),
     );
   }
 
   Future<void> _openShareSheet(BuildContext context) async {
+    final blogProvider = context.read<BlogProvider>();
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => _BlogShareSheet(blog: blog),
+      builder: (context) => ChangeNotifierProvider<BlogProvider>.value(
+        value: blogProvider,
+        child: _BlogShareSheet(blog: widget.blog),
+      ),
     );
   }
 }
@@ -1115,10 +1152,7 @@ class _BlogReactionMenuItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(
-          icon,
-          size: 18,
-        ),
+        Icon(icon, size: 18),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
@@ -1187,7 +1221,9 @@ class _BlogActionChip extends StatelessWidget {
                   size: 16,
                   color: active
                       ? const Color(0xFF1AB7A8)
-                      : (isDark ? const Color(0xFF9AB0BE) : const Color(0xFF5C7186)),
+                      : (isDark
+                            ? const Color(0xFF9AB0BE)
+                            : const Color(0xFF5C7186)),
                 ),
               const SizedBox(width: 6),
               Text(
@@ -1197,7 +1233,9 @@ class _BlogActionChip extends StatelessWidget {
                   fontSize: 12.8,
                   color: active
                       ? const Color(0xFF1AB7A8)
-                      : (isDark ? const Color(0xFFD5E1EA) : const Color(0xFF324C66)),
+                      : (isDark
+                            ? const Color(0xFFD5E1EA)
+                            : const Color(0xFF324C66)),
                 ),
               ),
             ],
@@ -1408,10 +1446,7 @@ class _BlogCommentsSheetState extends State<_BlogCommentsSheet> {
                               ),
                             )
                           : Text(
-                              tr(
-                                '\u0625\u0631\u0633\u0627\u0644',
-                                'Envoyer',
-                              ),
+                              tr('\u0625\u0631\u0633\u0627\u0644', 'Envoyer'),
                             ),
                     ),
                   ],
@@ -1688,11 +1723,118 @@ Uri _platformShareUri({
   }
 }
 
-class _BlogRemoteImage extends StatelessWidget {
-  const _BlogRemoteImage({
+class _BlogCoverImage extends StatelessWidget {
+  const _BlogCoverImage({
     required this.imageUrl,
+    required this.title,
     required this.fallbackLabel,
   });
+
+  final String imageUrl;
+  final String title;
+  final String fallbackLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final hasImage = imageUrl.trim().isNotEmpty;
+
+    return AspectRatio(
+      aspectRatio: 1.55,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (hasImage)
+              Image.network(
+                imageUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) =>
+                    _fallback(context, isDark),
+                loadingBuilder: (context, child, progress) {
+                  if (progress == null) {
+                    return child;
+                  }
+                  return _fallback(context, isDark);
+                },
+              )
+            else
+              _fallback(context, isDark),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.08),
+                    Colors.black.withValues(alpha: isDark ? 0.72 : 0.58),
+                  ],
+                ),
+              ),
+            ),
+            Align(
+              alignment: Alignment.bottomLeft,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.44),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.24),
+                    ),
+                  ),
+                  child: Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.tajawal(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                      shadows: const [
+                        Shadow(
+                          color: Colors.black54,
+                          blurRadius: 6,
+                          offset: Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _fallback(BuildContext context, bool isDark) {
+    return Container(
+      color: isDark ? const Color(0xFF142332) : const Color(0xFFEAF1F6),
+      child: Center(
+        child: Text(
+          fallbackLabel,
+          textAlign: TextAlign.center,
+          style: GoogleFonts.tajawal(
+            color: isDark ? const Color(0xFF9FB2C0) : const Color(0xFF607D93),
+            fontWeight: FontWeight.w700,
+            fontSize: 12,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BlogRemoteImage extends StatelessWidget {
+  const _BlogRemoteImage({required this.imageUrl, required this.fallbackLabel});
 
   final String imageUrl;
   final String fallbackLabel;
@@ -1783,12 +1925,4 @@ String _formatDate(DateTime value) {
   final hour = value.hour.toString().padLeft(2, '0');
   final minute = value.minute.toString().padLeft(2, '0');
   return '$day/$month/$year - $hour:$minute';
-}
-
-String _buildExcerpt(String content) {
-  final normalized = content.replaceAll(RegExp(r'\s+'), ' ').trim();
-  if (normalized.length <= 220) {
-    return normalized;
-  }
-  return '${normalized.substring(0, 220)}...';
 }

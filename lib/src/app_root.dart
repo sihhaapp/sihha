@@ -2,15 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
-import '../admin_home.dart';
-import '../doctor_home.dart';
-import '../patient_home.dart';
+import 'screens/admin_home.dart';
+import 'screens/doctor_home.dart';
+import 'screens/patient_home.dart';
 import 'models/app_user.dart';
 import 'providers/admin_provider.dart';
 import 'providers/app_settings_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/blog_provider.dart';
+import 'providers/audio_provider.dart';
 import 'providers/chat_provider.dart';
+import 'providers/consultation_provider.dart';
+import 'providers/live_session_provider.dart';
 import 'screens/auth_screen.dart';
 import 'services/admin_service.dart';
 import 'services/api_service.dart';
@@ -98,7 +101,16 @@ class _AppBootstrapState extends State<AppBootstrap> {
           create: (_) => AuthProvider(_authService),
         ),
         ChangeNotifierProvider<ChatProvider>(
-          create: (_) => ChatProvider(_chatService, VoiceService()),
+          create: (_) => ChatProvider(_chatService),
+        ),
+        ChangeNotifierProvider<AudioProvider>(
+          create: (_) => AudioProvider(_chatService, VoiceService()),
+        ),
+        ChangeNotifierProvider<LiveSessionProvider>(
+          create: (_) => LiveSessionProvider(_chatService),
+        ),
+        ChangeNotifierProvider<ConsultationProvider>(
+          create: (_) => ConsultationProvider(_chatService),
         ),
         ChangeNotifierProvider<BlogProvider>(
           create: (_) => BlogProvider(_blogService),

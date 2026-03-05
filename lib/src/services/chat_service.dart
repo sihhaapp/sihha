@@ -6,6 +6,7 @@ import '../models/chat_message.dart';
 import '../models/chat_room.dart';
 import '../models/consultation_request.dart';
 import '../models/medical_record.dart';
+import '../utils/api_response_helpers.dart';
 import 'api_service.dart';
 
 class ChatService {
@@ -46,17 +47,17 @@ class ChatService {
       '/rooms/create-or-get',
       body: {'doctorId': doctor.id},
     );
-    final map = _readMap(body);
-    final roomMap = _readMap(map['room']);
+    final map = readMap(body);
+    final roomMap = readMap(map['room']);
     return ChatRoom.fromMap((roomMap['id'] as String?) ?? '', roomMap);
   }
 
   Future<ChatRoom?> findRoomWithDoctor(String doctorId) async {
     final body = await _apiService.get('/rooms/with-doctor/$doctorId');
-    final map = _readMap(body);
+    final map = readMap(body);
     final rawRoom = map['room'];
     if (rawRoom == null) return null;
-    final roomMap = _readMap(rawRoom);
+    final roomMap = readMap(rawRoom);
     final roomId = (roomMap['id'] as String?)?.trim() ?? '';
     if (roomId.isEmpty) return null;
     return ChatRoom.fromMap(roomId, roomMap);
@@ -64,10 +65,10 @@ class ChatService {
 
   Future<ChatRoom?> getRoomById(String roomId) async {
     final body = await _apiService.get('/rooms/$roomId');
-    final map = _readMap(body);
+    final map = readMap(body);
     final rawRoom = map['room'];
     if (rawRoom == null) return null;
-    final roomMap = _readMap(rawRoom);
+    final roomMap = readMap(rawRoom);
     final resolvedId = (roomMap['id'] as String?)?.trim() ?? roomId;
     return ChatRoom.fromMap(resolvedId, roomMap);
   }
@@ -101,8 +102,8 @@ class ChatService {
         'symptomsVoiceUrl': symptomsVoiceUrl.trim(),
       },
     );
-    final map = _readMap(body);
-    final requestMap = _readMap(map['request']);
+    final map = readMap(body);
+    final requestMap = readMap(map['request']);
     return ConsultationRequest.fromMap(requestMap);
   }
 
@@ -128,10 +129,10 @@ class ChatService {
     String roomId,
   ) async {
     final body = await _apiService.get('/rooms/$roomId/consultation-request');
-    final map = _readMap(body);
+    final map = readMap(body);
     final reqRaw = map['request'];
     if (reqRaw == null) return null;
-    return ConsultationRequest.fromMap(_readMap(reqRaw));
+    return ConsultationRequest.fromMap(readMap(reqRaw));
   }
 
   Future<ConsultationRequest?> updateConsultationRequest({
@@ -142,20 +143,20 @@ class ChatService {
       '/consultation-requests/$requestId',
       body: payload,
     );
-    final map = _readMap(body);
+    final map = readMap(body);
     final reqRaw = map['request'];
     if (reqRaw == null) return null;
-    return ConsultationRequest.fromMap(_readMap(reqRaw));
+    return ConsultationRequest.fromMap(readMap(reqRaw));
   }
 
   Future<MedicalRecord?> fetchMedicalRecordByRoom(String roomId) async {
     final body = await _apiService.get('/rooms/$roomId/medical-record');
-    final map = _readMap(body);
+    final map = readMap(body);
     final rawRecord = map['record'];
     if (rawRecord == null) {
       return null;
     }
-    return MedicalRecord.fromMap(_readMap(rawRecord));
+    return MedicalRecord.fromMap(readMap(rawRecord));
   }
 
   Future<MedicalRecord?> updateMedicalRecordByRoom({
@@ -166,18 +167,18 @@ class ChatService {
       '/rooms/$roomId/medical-record',
       body: payload,
     );
-    final map = _readMap(body);
+    final map = readMap(body);
     final rawRecord = map['record'];
     if (rawRecord == null) {
       return null;
     }
-    return MedicalRecord.fromMap(_readMap(rawRecord));
+    return MedicalRecord.fromMap(readMap(rawRecord));
   }
 
   Future<ChatRoom> closeRoom(String roomId) async {
     final body = await _apiService.post('/rooms/$roomId/close');
-    final map = _readMap(body);
-    final roomMap = _readMap(map['room']);
+    final map = readMap(body);
+    final roomMap = readMap(map['room']);
     return ChatRoom.fromMap((roomMap['id'] as String?) ?? roomId, roomMap);
   }
 
@@ -187,7 +188,7 @@ class ChatService {
     final body = await _apiService.post(
       '/consultation-requests/$requestId/accept',
     );
-    final map = _readMap(body);
+    final map = readMap(body);
     return map;
   }
 
@@ -197,8 +198,8 @@ class ChatService {
     final body = await _apiService.post(
       '/consultation-requests/$requestId/reject',
     );
-    final map = _readMap(body);
-    final requestMap = _readMap(map['request']);
+    final map = readMap(body);
+    final requestMap = readMap(map['request']);
     return ConsultationRequest.fromMap(requestMap);
   }
 
@@ -210,8 +211,8 @@ class ChatService {
       '/consultation-requests/$requestId/transfer',
       body: {'doctorId': doctorId},
     );
-    final map = _readMap(body);
-    final requestMap = _readMap(map['request']);
+    final map = readMap(body);
+    final requestMap = readMap(map['request']);
     return ConsultationRequest.fromMap(requestMap);
   }
 
@@ -237,7 +238,7 @@ class ChatService {
       fileField: 'audio',
       filePath: file.path,
     );
-    final map = _readMap(body);
+    final map = readMap(body);
     final audioUrl = (map['audioUrl'] as String?)?.trim();
     if (audioUrl == null || audioUrl.isEmpty) {
       throw const ApiException(
@@ -254,7 +255,7 @@ class ChatService {
       fileField: 'image',
       filePath: file.path,
     );
-    final map = _readMap(body);
+    final map = readMap(body);
     final imageUrl = (map['imageUrl'] as String?)?.trim();
     if (imageUrl == null || imageUrl.isEmpty) {
       throw const ApiException(
@@ -271,7 +272,7 @@ class ChatService {
       fileField: 'pdf',
       filePath: file.path,
     );
-    final map = _readMap(body);
+    final map = readMap(body);
     final pdfUrl = (map['pdfUrl'] as String?)?.trim();
     if (pdfUrl == null || pdfUrl.isEmpty) {
       throw const ApiException(
@@ -328,8 +329,8 @@ class ChatService {
 
   Future<Map<String, dynamic>> fetchLiveStatus(String roomId) async {
     final body = await _apiService.get('/rooms/$roomId/live/status');
-    final map = _readMap(body);
-    return _readMap(map['session']);
+    final map = readMap(body);
+    return readMap(map['session']);
   }
 
   Future<void> requestLiveSession(String roomId) async {
@@ -354,55 +355,55 @@ class ChatService {
 
   Future<Map<String, dynamic>> joinLiveSession(String roomId) async {
     final body = await _apiService.post('/rooms/$roomId/live/join');
-    return _readMap(body);
+    return readMap(body);
   }
 
   Future<List<AppUser>> _fetchDoctors() async {
     final body = await _apiService.get('/doctors');
-    final map = _readMap(body);
-    final list = _readList(map['doctors']);
+    final map = readMap(body);
+    final list = readList(map['doctors']);
     return list
-        .map((raw) => _readMap(raw))
+        .map((raw) => readMap(raw))
         .map((raw) => AppUser.fromMap((raw['id'] as String?) ?? '', raw))
         .toList();
   }
 
   Future<List<ChatRoom>> _fetchRooms() async {
     final body = await _apiService.get('/rooms');
-    final map = _readMap(body);
-    final list = _readList(map['rooms']);
+    final map = readMap(body);
+    final list = readList(map['rooms']);
     return list
-        .map((raw) => _readMap(raw))
+        .map((raw) => readMap(raw))
         .map((raw) => ChatRoom.fromMap((raw['id'] as String?) ?? '', raw))
         .toList();
   }
 
   Future<List<ConsultationRequest>> _fetchMyConsultationRequests() async {
     final body = await _apiService.get('/consultation-requests/mine');
-    final map = _readMap(body);
-    final list = _readList(map['requests']);
+    final map = readMap(body);
+    final list = readList(map['requests']);
     return list
-        .map((raw) => _readMap(raw))
+        .map((raw) => readMap(raw))
         .map(ConsultationRequest.fromMap)
         .toList();
   }
 
   Future<List<ConsultationRequest>> _fetchDoctorConsultationInbox() async {
     final body = await _apiService.get('/consultation-requests/inbox');
-    final map = _readMap(body);
-    final list = _readList(map['requests']);
+    final map = readMap(body);
+    final list = readList(map['requests']);
     return list
-        .map((raw) => _readMap(raw))
+        .map((raw) => readMap(raw))
         .map(ConsultationRequest.fromMap)
         .toList();
   }
 
   Future<List<ChatMessage>> _fetchMessages(String roomId) async {
     final body = await _apiService.get('/rooms/$roomId/messages');
-    final map = _readMap(body);
-    final list = _readList(map['messages']);
+    final map = readMap(body);
+    final list = readList(map['messages']);
     return list
-        .map((raw) => _readMap(raw))
+        .map((raw) => readMap(raw))
         .map((raw) => ChatMessage.fromMap((raw['id'] as String?) ?? '', raw))
         .toList();
   }
@@ -413,25 +414,5 @@ class ChatService {
   }) async* {
     yield await fetch();
     yield* Stream.periodic(interval).asyncMap((_) => fetch());
-  }
-
-  Map<String, dynamic> _readMap(dynamic value) {
-    if (value is Map<String, dynamic>) {
-      return value;
-    }
-    throw const ApiException(
-      code: 'invalid-response',
-      message: 'Unexpected response from backend.',
-    );
-  }
-
-  List<dynamic> _readList(dynamic value) {
-    if (value is List<dynamic>) {
-      return value;
-    }
-    throw const ApiException(
-      code: 'invalid-response',
-      message: 'Unexpected list payload from backend.',
-    );
   }
 }

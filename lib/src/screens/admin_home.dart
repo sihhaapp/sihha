@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'src/constants/medical_specialties.dart';
-import 'src/models/admin_dashboard.dart';
-import 'src/models/app_user.dart';
-import 'src/providers/admin_provider.dart';
-import 'src/providers/app_settings_provider.dart';
-import 'src/providers/auth_provider.dart';
-import 'src/theme/sihha_theme.dart';
+import '../constants/medical_specialties.dart';
+import '../models/admin_dashboard.dart';
+import '../models/app_user.dart';
+import '../providers/admin_provider.dart';
+import '../providers/app_settings_provider.dart';
+import '../providers/auth_provider.dart';
+import '../theme/sihha_theme.dart';
 
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key, required this.currentUser});

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../models/blog_comment.dart';
 import '../models/health_blog.dart';
+import '../utils/api_response_helpers.dart';
 import 'api_service.dart';
 
 class BlogService {
@@ -43,7 +44,7 @@ class BlogService {
       fileField: 'image',
       filePath: filePath,
     );
-    final map = _readMap(body);
+    final map = readMap(body);
     final imageUrl = (map['imageUrl'] as String?)?.trim();
     if (imageUrl == null || imageUrl.isEmpty) {
       throw const ApiException(
@@ -66,10 +67,10 @@ class BlogService {
 
   Future<List<BlogComment>> fetchComments({required String blogId}) async {
     final body = await _apiService.get('/blogs/${blogId.trim()}/comments');
-    final map = _readMap(body);
-    final list = _readList(map['comments']);
+    final map = readMap(body);
+    final list = readList(map['comments']);
     return list
-        .map((raw) => _readMap(raw))
+        .map((raw) => readMap(raw))
         .map((raw) => BlogComment.fromMap((raw['id'] as String?) ?? '', raw))
         .toList();
   }
@@ -96,10 +97,10 @@ class BlogService {
 
   Future<List<HealthBlog>> _fetchBlogs() async {
     final body = await _apiService.get('/blogs');
-    final map = _readMap(body);
-    final list = _readList(map['blogs']);
+    final map = readMap(body);
+    final list = readList(map['blogs']);
     return list
-        .map((raw) => _readMap(raw))
+        .map((raw) => readMap(raw))
         .map((raw) => HealthBlog.fromMap((raw['id'] as String?) ?? '', raw))
         .toList();
   }
@@ -110,25 +111,5 @@ class BlogService {
   }) async* {
     yield await fetch();
     yield* Stream.periodic(interval).asyncMap((_) => fetch());
-  }
-
-  Map<String, dynamic> _readMap(dynamic value) {
-    if (value is Map<String, dynamic>) {
-      return value;
-    }
-    throw const ApiException(
-      code: 'invalid-response',
-      message: 'Unexpected response from backend.',
-    );
-  }
-
-  List<dynamic> _readList(dynamic value) {
-    if (value is List<dynamic>) {
-      return value;
-    }
-    throw const ApiException(
-      code: 'invalid-response',
-      message: 'Unexpected list payload from backend.',
-    );
   }
 }

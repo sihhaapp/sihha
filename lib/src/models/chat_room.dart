@@ -1,5 +1,8 @@
 import 'dart:convert';
 
+import '../utils/api_response_helpers.dart';
+import '../utils/date_parser.dart';
+import '../utils/media_url_normalizer.dart';
 import '../utils/text_normalizer.dart';
 
 class ChatRoom {
@@ -51,16 +54,16 @@ class ChatRoom {
   }
 
   factory ChatRoom.fromMap(String id, Map<String, dynamic> map) {
-    final patientMap = _asStringMap(map['patient']);
-    final doctorMap = _asStringMap(map['doctor']);
-    final patientId = _firstNonEmptyString([
+    final patientMap = asStringMap(map['patient']);
+    final doctorMap = asStringMap(map['doctor']);
+    final patientId = firstNonEmptyString([
       map['patientId'],
       map['patient_id'],
       patientMap['id'],
       patientMap['userId'],
       patientMap['user_id'],
     ]);
-    final doctorId = _firstNonEmptyString([
+    final doctorId = firstNonEmptyString([
       map['doctorId'],
       map['doctor_id'],
       doctorMap['id'],
@@ -73,22 +76,22 @@ class ChatRoom {
       patientId: patientId,
       patientName:
           _normalizeUiText(
-            _firstNonEmptyString([
+            firstNonEmptyString([
               map['patientName'],
               map['patient_name'],
               patientMap['name'],
             ]),
           ).isNotEmpty
           ? _normalizeUiText(
-              _firstNonEmptyString([
+              firstNonEmptyString([
                 map['patientName'],
                 map['patient_name'],
                 patientMap['name'],
               ]),
             )
           : 'Patient',
-      patientPhotoUrl: _normalizePhotoUrl(
-        _firstNonEmptyString([
+      patientPhotoUrl: normalizeBackendMediaUrl(
+        firstNonEmptyString([
           map['patientPhotoUrl'],
           map['patient_photo_url'],
           map['patientPhoto'],
@@ -100,22 +103,22 @@ class ChatRoom {
       doctorId: doctorId,
       doctorName:
           _normalizeUiText(
-            _firstNonEmptyString([
+            firstNonEmptyString([
               map['doctorName'],
               map['doctor_name'],
               doctorMap['name'],
             ]),
           ).isNotEmpty
           ? _normalizeUiText(
-              _firstNonEmptyString([
+              firstNonEmptyString([
                 map['doctorName'],
                 map['doctor_name'],
                 doctorMap['name'],
               ]),
             )
           : 'Doctor',
-      doctorPhotoUrl: _normalizePhotoUrl(
-        _firstNonEmptyString([
+      doctorPhotoUrl: normalizeBackendMediaUrl(
+        firstNonEmptyString([
           map['doctorPhotoUrl'],
           map['doctor_photo_url'],
           map['doctorPhoto'],
@@ -130,11 +133,11 @@ class ChatRoom {
         doctorId: doctorId,
       ),
       lastMessage: _normalizeUiText(
-        _firstNonEmptyString([map['lastMessage'], map['last_message']]),
+        firstNonEmptyString([map['lastMessage'], map['last_message']]),
       ),
-      unreadCount: _toInt(map['unreadCount'] ?? map['unread_count']),
-      createdAt: _parseDate(map['createdAt'] ?? map['created_at']),
-      lastUpdatedAt: _parseDate(
+      unreadCount: readInt(map['unreadCount'] ?? map['unread_count']),
+      createdAt: parseDate(map['createdAt'] ?? map['created_at']),
+      lastUpdatedAt: parseDate(
         map['lastUpdatedAt'] ??
             map['last_updated_at'] ??
             map['updatedAt'] ??
@@ -151,135 +154,6 @@ class ChatRoom {
 }
 
 String _normalizeUiText(String value) => normalizePossiblyMojibake(value);
-
-DateTime _parseDate(dynamic value) {
-  if (value is DateTime) {
-    return value;
-  }
-  if (value is String) {
-    final parsed = DateTime.tryParse(value);
-    if (parsed != null) {
-      return parsed;
-    }
-  }
-  if (value is int) {
-    return DateTime.fromMillisecondsSinceEpoch(value);
-  }
-  if (value is num) {
-    return DateTime.fromMillisecondsSinceEpoch(value.toInt());
-  }
-  if (value is Map<String, dynamic>) {
-    final seconds = value['_seconds'] ?? value['seconds'];
-    if (seconds is int) {
-      return DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
-    }
-  }
-  return DateTime.now();
-}
-
-String _normalizePhotoUrl(dynamic value) {
-  final raw = (value as String?)?.trim() ?? '';
-  if (raw.isEmpty) {
-    return '';
-  }
-
-  final apiBase = const String.fromEnvironment(
-    'API_BASE_URL',
-    defaultValue: 'https://sihha.space/api',
-  ).trim();
-  final apiUri = Uri.tryParse(apiBase);
-  final uri = Uri.tryParse(raw);
-  if (uri == null) {
-    return raw;
-  }
-
-  String normalizeUploadPath(String path) {
-    if (path.startsWith('/api/uploads/')) {
-      return path.replaceFirst('/api/uploads/', '/uploads/');
-    }
-    if (path.contains('/api/uploads/')) {
-      return path.replaceFirst('/api/uploads/', '/uploads/');
-    }
-    final uploadsIndex = path.indexOf('/uploads/');
-    if (uploadsIndex >= 0) {
-      return path.substring(uploadsIndex);
-    }
-    return path;
-  }
-
-  bool isUploadsPath(String path) {
-    return path.startsWith('/uploads/') ||
-        path.contains('/uploads/') ||
-        path.startsWith('/api/uploads/') ||
-        path.contains('/api/uploads/');
-  }
-
-  if (isUploadsPath(uri.path) && apiUri != null && apiUri.host.isNotEmpty) {
-    final normalizedPath = normalizeUploadPath(uri.path);
-    if (uri.hasScheme) {
-      return uri
-          .replace(
-            scheme: apiUri.scheme.isEmpty ? uri.scheme : apiUri.scheme,
-            host: apiUri.host,
-            port: apiUri.hasPort ? apiUri.port : null,
-            path: normalizedPath,
-          )
-          .toString();
-    }
-    return apiUri
-        .replace(
-          path: normalizedPath,
-          query: uri.query.isEmpty ? null : uri.query,
-          fragment: uri.fragment.isEmpty ? null : uri.fragment,
-        )
-        .toString();
-  }
-
-  if (!uri.hasScheme) {
-    return raw;
-  }
-
-  final host = uri.host.toLowerCase();
-  final isLoopbackHost =
-      host == 'localhost' || host == '127.0.0.1' || host == '10.0.2.2';
-  if (!isLoopbackHost || apiUri == null || apiUri.host.isEmpty) {
-    return raw;
-  }
-
-  final normalized = uri.replace(
-    scheme: apiUri.scheme.isEmpty ? uri.scheme : apiUri.scheme,
-    host: apiUri.host,
-    port: apiUri.hasPort ? apiUri.port : uri.port,
-  );
-  return normalized.toString();
-}
-
-int _toInt(dynamic value) {
-  if (value is int) return value;
-  if (value is num) return value.toInt();
-  if (value is String) return int.tryParse(value.trim()) ?? 0;
-  return 0;
-}
-
-String _firstNonEmptyString(Iterable<dynamic> values) {
-  for (final value in values) {
-    final text = value?.toString().trim() ?? '';
-    if (text.isNotEmpty) {
-      return text;
-    }
-  }
-  return '';
-}
-
-Map<String, dynamic> _asStringMap(dynamic value) {
-  if (value is Map<String, dynamic>) {
-    return value;
-  }
-  if (value is Map) {
-    return value.map((key, item) => MapEntry(key.toString(), item));
-  }
-  return const <String, dynamic>{};
-}
 
 List<String> _readParticipantIds(
   Map<String, dynamic> map, {

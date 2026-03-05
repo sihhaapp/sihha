@@ -217,6 +217,9 @@ function mapBlogRow(row) {
     category: row.category,
     authorId: row.author_id,
     authorName: row.author_name,
+    expressiveImageUrl1: row.expressive_image_url1 || "",
+    expressiveImageUrl2: row.expressive_image_url2 || "",
+    expressiveImageUrl3: row.expressive_image_url3 || "",
     publishedAt: row.published_at,
     updatedAt: row.updated_at,
   };
@@ -2234,6 +2237,9 @@ app.post("/api/blogs", requireAuth, async (req, res) => {
   const title = String(req.body.title || "").trim();
   const content = String(req.body.content || "").trim();
   const category = String(req.body.category || "").trim();
+  const expressiveImageUrl1 = String(req.body.expressiveImageUrl1 || "").trim();
+  const expressiveImageUrl2 = String(req.body.expressiveImageUrl2 || "").trim();
+  const expressiveImageUrl3 = String(req.body.expressiveImageUrl3 || "").trim();
 
   if (!title || !content || !category) {
     return apiError(res, 400, "blog-required-fields", "Title, content and category are required.");
@@ -2246,14 +2252,19 @@ app.post("/api/blogs", requireAuth, async (req, res) => {
   const now = toIsoNow();
   await db.run(
     `INSERT INTO blogs (
-      id, title, content, category, author_id, author_name, published_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, title, content, category, author_id, author_name,
+      expressive_image_url1, expressive_image_url2, expressive_image_url3,
+      published_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     title,
     content,
     category,
     req.authUser.id,
     req.authUser.name,
+    expressiveImageUrl1,
+    expressiveImageUrl2,
+    expressiveImageUrl3,
     now,
     now,
   );

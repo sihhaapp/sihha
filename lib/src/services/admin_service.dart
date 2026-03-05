@@ -1,5 +1,7 @@
 import '../models/app_user.dart';
 import '../models/admin_dashboard.dart';
+import '../utils/api_response_helpers.dart';
+import '../utils/date_parser.dart';
 import 'api_service.dart';
 
 class AdminService {
@@ -9,37 +11,37 @@ class AdminService {
 
   Future<List<AppUser>> fetchUsers() async {
     final body = await _apiService.get('/admin/users');
-    final map = _readMap(body);
-    final list = _readList(map['users']);
+    final map = readMap(body);
+    final list = readList(map['users']);
     return list
-        .map((raw) => _readMap(raw))
+        .map((raw) => readMap(raw))
         .map((raw) => AppUser.fromMap((raw['id'] as String?) ?? '', raw))
         .toList();
   }
 
   Future<AdminDashboardData> fetchDashboard() async {
     final body = await _apiService.get('/admin/dashboard');
-    final map = _readMap(body);
-    final summaryMap = _readMap(map['summary']);
-    final visitorsMap = _readMap(map['visitors']);
-    final doctorsList = _readList(map['doctors']);
-    final currentVisitorsList = _readList(map['currentVisitors']);
+    final map = readMap(body);
+    final summaryMap = readMap(map['summary']);
+    final visitorsMap = readMap(map['visitors']);
+    final doctorsList = readList(map['doctors']);
+    final currentVisitorsList = readList(map['currentVisitors']);
 
     final summary = AdminSummaryStats(
-      totalUsers: _readInt(summaryMap['totalUsers']),
-      doctorsCount: _readInt(summaryMap['doctorsCount']),
-      patientsCount: _readInt(summaryMap['patientsCount']),
-      disabledUsersCount: _readInt(summaryMap['disabledUsersCount']),
+      totalUsers: readInt(summaryMap['totalUsers']),
+      doctorsCount: readInt(summaryMap['doctorsCount']),
+      patientsCount: readInt(summaryMap['patientsCount']),
+      disabledUsersCount: readInt(summaryMap['disabledUsersCount']),
     );
     final visitors = AdminVisitorsStats(
-      today: _readInt(visitorsMap['today']),
-      month: _readInt(visitorsMap['month']),
-      year: _readInt(visitorsMap['year']),
-      currentOnline: _readInt(visitorsMap['currentOnline']),
+      today: readInt(visitorsMap['today']),
+      month: readInt(visitorsMap['month']),
+      year: readInt(visitorsMap['year']),
+      currentOnline: readInt(visitorsMap['currentOnline']),
     );
 
     final doctors = doctorsList.map((raw) {
-      final doctor = _readMap(raw);
+      final doctor = readMap(raw);
       return AdminDoctorKpi(
         id: (doctor['id'] as String?) ?? '',
         name: (doctor['name'] as String?) ?? '',
@@ -47,26 +49,26 @@ class AdminService {
         photoUrl: (doctor['photoUrl'] as String?) ?? '',
         specialty: (doctor['specialty'] as String?) ?? '',
         hospitalName: (doctor['hospitalName'] as String?) ?? '',
-        isDisabled: _readBool(doctor['isDisabled']),
-        patientsToday: _readInt(doctor['patientsToday']),
-        patientsMonth: _readInt(doctor['patientsMonth']),
-        patientsYear: _readInt(doctor['patientsYear']),
-        consultationsToday: _readInt(doctor['consultationsToday']),
-        consultationsMonth: _readInt(doctor['consultationsMonth']),
-        consultationsYear: _readInt(doctor['consultationsYear']),
+        isDisabled: readBool(doctor['isDisabled']),
+        patientsToday: readInt(doctor['patientsToday']),
+        patientsMonth: readInt(doctor['patientsMonth']),
+        patientsYear: readInt(doctor['patientsYear']),
+        consultationsToday: readInt(doctor['consultationsToday']),
+        consultationsMonth: readInt(doctor['consultationsMonth']),
+        consultationsYear: readInt(doctor['consultationsYear']),
       );
     }).toList();
 
     final currentVisitors = currentVisitorsList.map((raw) {
-      final visitor = _readMap(raw);
+      final visitor = readMap(raw);
       return AdminCurrentVisitor(
         id: (visitor['id'] as String?) ?? '',
         name: (visitor['name'] as String?) ?? '',
         phoneNumber: (visitor['phoneNumber'] as String?) ?? '',
         role: UserRole.fromValue(visitor['role'] as String?),
         photoUrl: (visitor['photoUrl'] as String?) ?? '',
-        isDisabled: _readBool(visitor['isDisabled']),
-        lastSeenAt: _readDate(visitor['lastSeenAt']),
+        isDisabled: readBool(visitor['isDisabled']),
+        lastSeenAt: parseNullableDate(visitor['lastSeenAt']),
       );
     }).toList();
 
@@ -101,8 +103,8 @@ class AdminService {
         'studyYears': studyYears,
       },
     );
-    final map = _readMap(body);
-    final userMap = _readMap(map['user']);
+    final map = readMap(body);
+    final userMap = readMap(map['user']);
     return AppUser.fromMap((userMap['id'] as String?) ?? '', userMap);
   }
 
@@ -114,8 +116,8 @@ class AdminService {
       '/admin/users/$userId/status',
       body: {'disabled': disabled},
     );
-    final map = _readMap(body);
-    final userMap = _readMap(map['user']);
+    final map = readMap(body);
+    final userMap = readMap(map['user']);
     return AppUser.fromMap((userMap['id'] as String?) ?? '', userMap);
   }
 
@@ -131,62 +133,5 @@ class AdminService {
 
   Future<void> deleteUser({required String userId}) async {
     await _apiService.delete('/admin/users/$userId');
-  }
-
-  Map<String, dynamic> _readMap(dynamic value) {
-    if (value is Map<String, dynamic>) {
-      return value;
-    }
-    throw const ApiException(
-      code: 'invalid-response',
-      message: 'Unexpected response from backend.',
-    );
-  }
-
-  List<dynamic> _readList(dynamic value) {
-    if (value is List<dynamic>) {
-      return value;
-    }
-    throw const ApiException(
-      code: 'invalid-response',
-      message: 'Unexpected list payload from backend.',
-    );
-  }
-
-  int _readInt(dynamic value) {
-    if (value is int) {
-      return value;
-    }
-    if (value is num) {
-      return value.toInt();
-    }
-    if (value is String) {
-      return int.tryParse(value.trim()) ?? 0;
-    }
-    return 0;
-  }
-
-  bool _readBool(dynamic value) {
-    if (value is bool) {
-      return value;
-    }
-    if (value is num) {
-      return value != 0;
-    }
-    if (value is String) {
-      final normalized = value.trim().toLowerCase();
-      return normalized == 'true' || normalized == '1';
-    }
-    return false;
-  }
-
-  DateTime? _readDate(dynamic value) {
-    if (value == null) {
-      return null;
-    }
-    if (value is String) {
-      return DateTime.tryParse(value);
-    }
-    return null;
   }
 }

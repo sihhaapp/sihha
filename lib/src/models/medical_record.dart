@@ -1,3 +1,6 @@
+import '../utils/date_parser.dart';
+import '../utils/media_url_normalizer.dart';
+
 class MedicalConsultationHistoryItem {
   const MedicalConsultationHistoryItem({
     required this.roomId,
@@ -20,8 +23,8 @@ class MedicalConsultationHistoryItem {
       roomId: (map['roomId'] as String?)?.trim() ?? '',
       doctorId: (map['doctorId'] as String?)?.trim() ?? '',
       doctorName: (map['doctorName'] as String?)?.trim() ?? '',
-      startedAt: _parseDate(map['startedAt']),
-      lastUpdatedAt: _parseDate(map['lastUpdatedAt']),
+      startedAt: parseDate(map['startedAt']),
+      lastUpdatedAt: parseDate(map['lastUpdatedAt']),
       isClosed: map['isClosed'] == true || map['is_closed'] == 1,
     );
   }
@@ -67,11 +70,11 @@ class MedicalRecordEntry {
       prescribedMedications:
           (map['prescribedMedications'] as String?)?.trim() ?? '',
       secretNotes: (map['secretNotes'] as String?)?.trim() ?? '',
-      prescriptionPdfUrl: _normalizeAssetUrl(
+      prescriptionPdfUrl: normalizeBackendMediaUrl(
         (map['prescriptionPdfUrl'] as String?)?.trim() ?? '',
       ),
-      createdAt: _parseDate(map['createdAt']),
-      updatedAt: _parseDate(map['updatedAt']),
+      createdAt: parseDate(map['createdAt']),
+      updatedAt: parseDate(map['updatedAt']),
     );
   }
 }
@@ -131,7 +134,7 @@ class MedicalRecord {
       latestPrescriptionPdfUrl: _normalizeNullableAssetUrl(
         map['latestPrescriptionPdfUrl'],
       ),
-      updatedAt: _parseNullableDate(map['updatedAt']),
+      updatedAt: parseNullableDate(map['updatedAt']),
       entries: entriesRaw is List
           ? entriesRaw
                 .whereType<Map>()
@@ -163,60 +166,8 @@ List<String> _readStringList(dynamic value) {
   return result;
 }
 
-DateTime _parseDate(dynamic value) {
-  if (value is DateTime) return value;
-  if (value is String) {
-    final parsed = DateTime.tryParse(value);
-    if (parsed != null) return parsed;
-  }
-  if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
-  if (value is num) return DateTime.fromMillisecondsSinceEpoch(value.toInt());
-  return DateTime.now();
-}
-
-DateTime? _parseNullableDate(dynamic value) {
-  if (value == null) return null;
-  if (value is String && value.trim().isEmpty) return null;
-  return _parseDate(value);
-}
-
 String? _normalizeNullableAssetUrl(dynamic value) {
   final raw = (value as String?)?.trim() ?? '';
   if (raw.isEmpty) return null;
-  return _normalizeAssetUrl(raw);
-}
-
-String _normalizeAssetUrl(String value) {
-  final raw = value.trim();
-  if (raw.isEmpty) {
-    return '';
-  }
-
-  final uri = Uri.tryParse(raw);
-  if (uri == null || !uri.hasScheme) {
-    return raw;
-  }
-
-  final host = uri.host.toLowerCase();
-  final isLoopbackHost =
-      host == 'localhost' || host == '127.0.0.1' || host == '10.0.2.2';
-  if (!isLoopbackHost) {
-    return raw;
-  }
-
-  final apiBase = const String.fromEnvironment(
-    'API_BASE_URL',
-    defaultValue: 'https://sihha.space/api',
-  ).trim();
-  final apiUri = Uri.tryParse(apiBase);
-  if (apiUri == null || apiUri.host.isEmpty) {
-    return raw;
-  }
-
-  final normalized = uri.replace(
-    scheme: apiUri.scheme.isEmpty ? uri.scheme : apiUri.scheme,
-    host: apiUri.host,
-    port: apiUri.hasPort ? apiUri.port : uri.port,
-  );
-  return normalized.toString();
+  return normalizeBackendMediaUrl(raw);
 }

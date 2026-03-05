@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:provider/provider.dart';
 
-import '../providers/chat_provider.dart';
+import '../providers/live_session_provider.dart';
 
 enum _SpeakerRole { none, local, remote }
 
@@ -203,7 +203,7 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen>
 
   Future<void> _checkLiveSessionStillActive() async {
     if (!mounted || _closing || !_connected) return;
-    final session = await context.read<ChatProvider>().fetchLiveStatus(
+    final session = await context.read<LiveSessionProvider>().fetchLiveStatus(
       widget.roomId,
     );
     if (!mounted || _closing || session == null) return;
@@ -238,7 +238,9 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen>
     for (final p in speakers) {
       if (local != null && p.identity == local.identity) {
         localSpeaking = true;
-        dominant = dominant == _SpeakerRole.none ? _SpeakerRole.local : dominant;
+        dominant = dominant == _SpeakerRole.none
+            ? _SpeakerRole.local
+            : dominant;
         continue;
       }
 
@@ -246,7 +248,9 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen>
       final isKnownRemote = _room.remoteParticipants.containsKey(p.identity);
       if (isCurrentRemote || isKnownRemote) {
         remoteSpeaking = true;
-        dominant = dominant == _SpeakerRole.none ? _SpeakerRole.remote : dominant;
+        dominant = dominant == _SpeakerRole.none
+            ? _SpeakerRole.remote
+            : dominant;
         if (_remoteIdentity != p.identity) {
           _remoteIdentity = p.identity;
         }
@@ -308,7 +312,8 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen>
     if (_error != null) return _error!;
     if (_connecting) return 'Connecting...';
     if (!_connected) return 'Disconnected';
-    if (_remoteParticipant == null) return 'Connected - waiting for participant';
+    if (_remoteParticipant == null)
+      return 'Connected - waiting for participant';
     if (_dominantSpeaker == _SpeakerRole.local) {
       return '${widget.localDisplayName} is speaking';
     }
@@ -395,10 +400,14 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen>
                           vertical: 7,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: isDark ? 0.18 : 0.10),
+                          color: Colors.black.withValues(
+                            alpha: isDark ? 0.18 : 0.10,
+                          ),
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
-                            color: Colors.white.withValues(alpha: isDark ? 0.16 : 0.5),
+                            color: Colors.white.withValues(
+                              alpha: isDark ? 0.16 : 0.5,
+                            ),
                           ),
                         ),
                         child: Text(
@@ -419,7 +428,9 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen>
                   child: AnimatedBuilder(
                     animation: _pulseController,
                     builder: (context, child) {
-                      final pulse = 0.75 + 0.25 * math.sin(_pulseController.value * math.pi * 2);
+                      final pulse =
+                          0.75 +
+                          0.25 * math.sin(_pulseController.value * math.pi * 2);
                       return Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -464,7 +475,9 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen>
                   children: [
                     Expanded(
                       child: _ActionPillButton(
-                        icon: _micEnabled ? Icons.mic_rounded : Icons.mic_off_rounded,
+                        icon: _micEnabled
+                            ? Icons.mic_rounded
+                            : Icons.mic_off_rounded,
                         label: _micEnabled ? 'Mute' : 'Unmute',
                         onPressed: _connected ? _toggleMic : null,
                       ),
@@ -534,7 +547,9 @@ class _ParticipantBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cleanName = name.trim().isEmpty ? (isLocal ? 'You' : 'Participant') : name.trim();
+    final cleanName = name.trim().isEmpty
+        ? (isLocal ? 'You' : 'Participant')
+        : name.trim();
     final glow = speaking
         ? const Color(0xFF14C9A0).withValues(alpha: 0.34 * pulseValue)
         : Colors.black.withValues(alpha: isDark ? 0.14 : 0.07);
@@ -600,7 +615,9 @@ class _ParticipantBadge extends StatelessWidget {
                   ? '$role • speaking'
                   : '$role • ${online ? 'listening' : 'offline'}',
               style: TextStyle(
-                color: isDark ? const Color(0xFFD9EBF9) : const Color(0xFF244963),
+                color: isDark
+                    ? const Color(0xFFD9EBF9)
+                    : const Color(0xFF244963),
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -686,17 +703,14 @@ class _ActionPillButton extends StatelessWidget {
       onPressed: onPressed,
       style: FilledButton.styleFrom(
         backgroundColor: Colors.white.withValues(alpha: isDark ? 0.12 : 0.72),
-        foregroundColor: isDark ? const Color(0xFFE7F4FF) : const Color(0xFF0F3D58),
+        foregroundColor: isDark
+            ? const Color(0xFFE7F4FF)
+            : const Color(0xFF0F3D58),
         padding: const EdgeInsets.symmetric(vertical: 13),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
       icon: Icon(icon),
-      label: Text(
-        label,
-        style: const TextStyle(fontWeight: FontWeight.w700),
-      ),
+      label: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
     );
   }
 }
