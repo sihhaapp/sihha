@@ -16,7 +16,6 @@ import '../providers/app_settings_provider.dart';
 import '../providers/chat_provider.dart';
 import '../theme/sihha_theme.dart';
 import '../widgets/message_bubble.dart';
-import '../widgets/consultation_request_dialog.dart';
 import 'livekit_call_screen.dart';
 
 enum _CallIntent { voice }
@@ -86,7 +85,8 @@ class _ChatScreenState extends State<ChatScreen>
   bool get _outgoingRequest =>
       _liveStatus == 'pending' && _requestedBy == widget.currentUser.id;
   bool get _activeSession => _liveStatus == 'active';
-  bool _consultationSectionVisible() => _loadingConsultation || _consultation != null;
+  bool _consultationSectionVisible() =>
+      _loadingConsultation || _consultation != null;
 
   @override
   void initState() {
@@ -180,11 +180,12 @@ class _ChatScreenState extends State<ChatScreen>
       setState(() => _loadingConsultation = false);
       return;
     }
-    final req =
-        await _chatProvider.fetchConsultationRequestByRoom(widget.room.id);
+    final req = await _chatProvider.fetchConsultationRequestByRoom(
+      widget.room.id,
+    );
     if (!mounted) return;
     setState(() {
-      // احتفظ بالقيمة السابقة إذا لم يرجع الخادم شيئًا
+      // Keep cached consultation data unless server returns a newer payload.
       _consultation = req ?? _consultation;
       if (_consultation != null) {
         _chatProvider.rememberConsultation(widget.room.id, _consultation!);
@@ -250,13 +251,16 @@ class _ChatScreenState extends State<ChatScreen>
   }
 
   Future<void> _openEditConsultation() async {
-    if (_consultation == null || widget.currentUser.role != UserRole.doctor) return;
+    if (_consultation == null || widget.currentUser.role != UserRole.doctor) {
+      return;
+    }
+
     final tr = context.read<AppSettingsProvider>().tr;
     final c = _consultation!;
-    final subjectController = TextEditingController(text: c.subjectName);
-    final ageController = TextEditingController(text: c.ageYears.toString());
-    final weightController = TextEditingController(text: c.weightKg.toString());
-    final symptomsController = TextEditingController(text: c.symptoms);
+    var subjectName = c.subjectName;
+    var ageText = c.ageYears.toString();
+    var weightText = c.weightKg.toString();
+    var symptomsText = c.symptoms;
     RequestGender gender = c.gender;
     RequestSubjectType subjectType = c.subjectType;
     SpokenLanguage language = c.spokenLanguage;
@@ -280,106 +284,195 @@ class _ChatScreenState extends State<ChatScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      tr('تعديل بيانات الاستشارة', 'Modifier la consultation'),
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                      tr(
+                        '\u062a\u0639\u062f\u064a\u0644 \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0627\u0633\u062a\u0634\u0627\u0631\u0629',
+                        'Modifier la consultation',
+                      ),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<RequestSubjectType>(
-                      value: subjectType,
-                      decoration: InputDecoration(labelText: tr('المستفيد', 'Bénéficiaire')),
+                      initialValue: subjectType,
+                      decoration: InputDecoration(
+                        labelText: tr(
+                          '\u0627\u0644\u0645\u0633\u062a\u0641\u064a\u062f',
+                          'Beneficiaire',
+                        ),
+                      ),
                       items: [
                         DropdownMenuItem(
                           value: RequestSubjectType.self,
-                          child: Text(tr('المريض نفسه', 'Patient lui-même')),
+                          child: Text(
+                            tr(
+                              '\u0627\u0644\u0645\u0631\u064a\u0636 \u0646\u0641\u0633\u0647',
+                              'Patient lui-meme',
+                            ),
+                          ),
                         ),
                         DropdownMenuItem(
                           value: RequestSubjectType.other,
-                          child: Text(tr('شخص آخر', 'Autre personne')),
+                          child: Text(
+                            tr(
+                              '\u0634\u062e\u0635 \u0622\u062e\u0631',
+                              'Autre personne',
+                            ),
+                          ),
                         ),
                       ],
-                      onChanged: (v) => setSheet(() => subjectType = v ?? subjectType),
+                      onChanged: (v) =>
+                          setSheet(() => subjectType = v ?? subjectType),
                     ),
-                    TextField(
-                      controller: subjectController,
+                    TextFormField(
+                      initialValue: subjectName,
+                      onChanged: (value) => subjectName = value,
                       decoration: InputDecoration(
-                        labelText: tr('اسم المريض/المستفيد', 'Nom du bénéficiaire'),
+                        labelText: tr(
+                          '\u0627\u0633\u0645 \u0627\u0644\u0645\u0631\u064a\u0636/\u0627\u0644\u0645\u0633\u062a\u0641\u064a\u062f',
+                          'Nom du beneficiaire',
+                        ),
                       ),
                     ),
                     const SizedBox(height: 8),
                     Row(
                       children: [
                         Expanded(
-                          child: TextField(
-                            controller: ageController,
+                          child: TextFormField(
+                            initialValue: ageText,
+                            onChanged: (value) => ageText = value,
                             keyboardType: TextInputType.number,
-                            decoration: InputDecoration(labelText: tr('العمر', 'Âge')),
+                            decoration: InputDecoration(
+                              labelText: tr(
+                                '\u0627\u0644\u0639\u0645\u0631',
+                                'Age',
+                              ),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: DropdownButtonFormField<RequestGender>(
-                            value: gender,
-                            decoration: InputDecoration(labelText: tr('الجنس', 'Sexe')),
+                            initialValue: gender,
+                            decoration: InputDecoration(
+                              labelText: tr(
+                                '\u0627\u0644\u062c\u0646\u0633',
+                                'Sexe',
+                              ),
+                            ),
                             items: RequestGender.values
                                 .map(
                                   (g) => DropdownMenuItem(
                                     value: g,
-                                    child: Text(g == RequestGender.male ? tr('ذكر', 'Homme') : tr('أنثى', 'Femme')),
+                                    child: Text(
+                                      g == RequestGender.male
+                                          ? tr(
+                                              '\u0630\u0643\u0631',
+                                              'Homme',
+                                            )
+                                          : tr(
+                                              '\u0623\u0646\u062b\u0649',
+                                              'Femme',
+                                            ),
+                                    ),
                                   ),
                                 )
                                 .toList(),
-                            onChanged: (v) => setSheet(() => gender = v ?? gender),
+                            onChanged: (v) =>
+                                setSheet(() => gender = v ?? gender),
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 8),
-                    TextField(
-                      controller: weightController,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration: InputDecoration(labelText: tr('الوزن (كغ)', 'Poids (kg)')),
+                    TextFormField(
+                      initialValue: weightText,
+                      onChanged: (value) => weightText = value,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: tr(
+                          '\u0627\u0644\u0648\u0632\u0646 (\u0643\u063a)',
+                          'Poids (kg)',
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<SpokenLanguage>(
-                      value: language,
-                      decoration: InputDecoration(labelText: tr('اللغة', 'Langue')),
+                      initialValue: language,
+                      decoration: InputDecoration(
+                        labelText: tr(
+                          '\u0627\u0644\u0644\u063a\u0629',
+                          'Langue',
+                        ),
+                      ),
                       items: SpokenLanguage.values
                           .map(
                             (l) => DropdownMenuItem(
                               value: l,
                               child: Text(
                                 l == SpokenLanguage.ar
-                                    ? tr('عربي', 'Arabe')
+                                    ? tr(
+                                        '\u0639\u0631\u0628\u064a',
+                                        'Arabe',
+                                      )
                                     : l == SpokenLanguage.fr
-                                        ? tr('فرنسي', 'Français')
-                                        : tr('مزدوج', 'Bilingue'),
+                                    ? tr(
+                                        '\u0641\u0631\u0646\u0633\u064a',
+                                        'Francais',
+                                      )
+                                    : tr(
+                                        '\u0645\u0632\u062f\u0648\u062c',
+                                        'Bilingue',
+                                      ),
                               ),
                             ),
                           )
                           .toList(),
-                      onChanged: (v) => setSheet(() => language = v ?? language),
+                      onChanged: (v) =>
+                          setSheet(() => language = v ?? language),
                     ),
                     const SizedBox(height: 8),
-                    TextField(
-                      controller: symptomsController,
+                    TextFormField(
+                      initialValue: symptomsText,
+                      onChanged: (value) => symptomsText = value,
                       minLines: 3,
                       maxLines: 5,
-                      decoration: InputDecoration(labelText: tr('الأعراض', 'Symptômes')),
+                      decoration: InputDecoration(
+                        labelText: tr(
+                          '\u0627\u0644\u0623\u0639\u0631\u0627\u0636',
+                          'Symptomes',
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 12),
                     Row(
                       children: [
                         Expanded(
                           child: OutlinedButton(
-                            onPressed: () => Navigator.of(sheetContext).pop(false),
-                            child: Text(tr('إلغاء', 'Annuler')),
+                            onPressed: () =>
+                                Navigator.of(sheetContext).pop(false),
+                            child: Text(
+                              tr(
+                                '\u0625\u0644\u063a\u0627\u0621',
+                                'Annuler',
+                              ),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: FilledButton(
-                            onPressed: () => Navigator.of(sheetContext).pop(true),
-                            child: Text(tr('حفظ', 'Enregistrer')),
+                            onPressed: () =>
+                                Navigator.of(sheetContext).pop(true),
+                            child: Text(
+                              tr(
+                                '\u062d\u0641\u0638',
+                                'Enregistrer',
+                              ),
+                            ),
                           ),
                         ),
                       ],
@@ -395,21 +488,20 @@ class _ChatScreenState extends State<ChatScreen>
 
     if (saved != true) return;
 
-    final age = int.tryParse(ageController.text.trim()) ?? c.ageYears;
-    final weight = double.tryParse(weightController.text.trim()) ?? c.weightKg;
+    final trimmedSubject = subjectName.trim();
+    final trimmedSymptoms = symptomsText.trim();
+    final age = int.tryParse(ageText.trim()) ?? c.ageYears;
+    final weight = double.tryParse(weightText.trim()) ?? c.weightKg;
+
     final payload = <String, dynamic>{
       'subjectType': subjectType.value,
-      'subjectName': subjectController.text.trim().isEmpty
-          ? c.subjectName
-          : subjectController.text.trim(),
+      'subjectName': trimmedSubject.isEmpty ? c.subjectName : trimmedSubject,
       'ageYears': age,
       'gender': gender.value,
       'weightKg': weight,
       'stateCode': c.stateCode,
       'spokenLanguage': language.value,
-      'symptoms': symptomsController.text.trim().isEmpty
-          ? c.symptoms
-          : symptomsController.text.trim(),
+      'symptoms': trimmedSymptoms.isEmpty ? c.symptoms : trimmedSymptoms,
     };
 
     final updated = await _chatProvider.updateConsultationRequest(
@@ -421,10 +513,18 @@ class _ChatScreenState extends State<ChatScreen>
       setState(() => _consultation = updated);
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(tr('تم تحديث البيانات.', 'Données mises à jour.'))));
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              tr(
+                '\u062a\u0645 \u062a\u062d\u062f\u064a\u062b \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0627\u0633\u062a\u0634\u0627\u0631\u0629.',
+                'Donnees mises a jour.',
+              ),
+            ),
+          ),
+        );
     }
   }
-
   Future<void> _sendText() async {
     final text = _textController.text.trim();
     if (text.isEmpty || _roomClosed) return;
@@ -483,49 +583,16 @@ class _ChatScreenState extends State<ChatScreen>
       setState(() => _roomClosed = true);
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(tr('تم إغلاق الاستشارة.', 'Consultation clôturée.'))));
-    } else {
-      _showErrorIfAny();
-    }
-  }
-
-  Future<void> _startNewConsultationRequest() async {
-    final tr = context.read<AppSettingsProvider>().tr;
-    final patient = widget.currentUser;
-    if (patient.role != UserRole.patient) return;
-
-    final doctor = AppUser(
-      id: widget.room.doctorId,
-      name: widget.room.doctorName,
-      phoneNumber: '',
-      role: UserRole.doctor,
-      createdAt: DateTime.now(),
-      photoUrl: widget.room.doctorPhotoUrl,
-    );
-
-    final input = await showConsultationRequestDialog(
-      context: context,
-      patient: patient,
-      doctor: doctor,
-    );
-    if (input == null || !mounted) return;
-
-    final req = await _chatProvider.submitConsultationRequest(
-      doctorId: doctor.id,
-      subjectType: input.subjectType,
-      subjectName: input.subjectName,
-      ageYears: input.ageYears,
-      gender: input.gender,
-      weightKg: input.weightKg,
-      stateCode: input.stateCode,
-      spokenLanguage: input.spokenLanguage,
-      symptoms: input.symptoms,
-    );
-    if (!mounted) return;
-    if (req != null) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(tr('تم إرسال طلب جديد للطبيب.', 'Nouvelle demande envoyée.'))));
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              tr(
+                '\u062A\u0645 \u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u0627\u0633\u062A\u0634\u0627\u0631\u0629 \u0628\u0646\u062C\u0627\u062D.',
+                'Consultation cloturee avec succes.',
+              ),
+            ),
+          ),
+        );
     } else {
       _showErrorIfAny();
     }
@@ -635,9 +702,7 @@ class _ChatScreenState extends State<ChatScreen>
           remoteDisplayName: meIsPatient
               ? widget.room.doctorName
               : widget.room.patientName,
-          remotePhotoUrl: meIsPatient
-              ? widget.room.doctorPhotoUrl
-              : widget.room.patientPhotoUrl,
+          remotePhotoUrl: _resolvedPeerPhotoUrl(meIsPatient: meIsPatient),
           remoteRoleLabel: meIsPatient ? 'Doctor' : 'Patient',
         ),
       ),
@@ -690,7 +755,7 @@ class _ChatScreenState extends State<ChatScreen>
               Expanded(
                 child: Text(
                   tr(
-                    'Ù…ÙƒØ§Ù„Ù…Ø© ÙˆØ§Ø±Ø¯Ø© Ù…Ù† $peerName',
+                    '\u0645\u0643\u0627\u0644\u0645\u0629 \u0648\u0627\u0631\u062F\u0629 \u0645\u0646 $peerName',
                     'Appel entrant de $peerName',
                   ),
                 ),
@@ -764,6 +829,24 @@ class _ChatScreenState extends State<ChatScreen>
     return const SizedBox.shrink();
   }
 
+  String _resolvedPeerPhotoUrl({required bool meIsPatient}) {
+    final roomPhoto =
+        (meIsPatient ? widget.room.doctorPhotoUrl : widget.room.patientPhotoUrl)
+            .trim();
+    if (roomPhoto.isNotEmpty) {
+      return roomPhoto;
+    }
+
+    final consultation = _consultation;
+    if (consultation == null) {
+      return '';
+    }
+    return (meIsPatient
+            ? consultation.targetDoctorPhotoUrl
+            : consultation.patientPhotoUrl)
+        .trim();
+  }
+
   bool _isSystemLiveMessage(ChatMessage message) {
     if (message.type != MessageType.live) return false;
     return message.content.trim().startsWith('[LIVE_');
@@ -781,9 +864,7 @@ class _ChatScreenState extends State<ChatScreen>
     final peerName = meIsPatient
         ? widget.room.doctorName
         : widget.room.patientName;
-    final peerPhotoUrl =
-        (meIsPatient ? widget.room.doctorPhotoUrl : widget.room.patientPhotoUrl)
-            .trim();
+    final peerPhotoUrl = _resolvedPeerPhotoUrl(meIsPatient: meIsPatient);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Directionality(
@@ -830,11 +911,19 @@ class _ChatScreenState extends State<ChatScreen>
               if (widget.currentUser.role == UserRole.doctor)
                 IconButton(
                   tooltip: _roomClosed
-                      ? tr('الاستشارة مغلقة', 'Consultation clôturée')
-                      : tr('إغلاق الاستشارة', 'Clôturer la consultation'),
+                      ? tr(
+                          '\u0627\u0644\u0627\u0633\u062A\u0634\u0627\u0631\u0629 \u0645\u063A\u0644\u0642\u0629',
+                          'Consultation cloturee',
+                        )
+                      : tr(
+                          '\u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u0627\u0633\u062A\u0634\u0627\u0631\u0629',
+                          'Cloturer la consultation',
+                        ),
                   onPressed: _roomClosed ? null : _closeRoom,
                   icon: Icon(
-                    _roomClosed ? Icons.lock_rounded : Icons.lock_outline_rounded,
+                    _roomClosed
+                        ? Icons.lock_rounded
+                        : Icons.lock_outline_rounded,
                   ),
                 ),
             ],
@@ -873,7 +962,7 @@ class _ChatScreenState extends State<ChatScreen>
                           return Center(
                             child: Text(
                               tr(
-                                'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø±Ø³Ø§Ø¦Ù„.',
+                                '\u062A\u0639\u0630\u0631 \u062A\u062D\u0645\u064A\u0644 \u0627\u0644\u0631\u0633\u0627\u0626\u0644.',
                                 'Impossible de charger les messages.',
                               ),
                             ),
@@ -918,7 +1007,7 @@ class _ChatScreenState extends State<ChatScreen>
                             ? Center(
                                 child: Text(
                                   tr(
-                                    'Ø§Ø¨Ø¯Ø£ Ø§Ù„Ø§Ø³ØªØ´Ø§Ø±Ø© Ø§Ù„Ø¢Ù†.',
+                                    '\u0627\u0628\u062F\u0623 \u0627\u0644\u0627\u0633\u062A\u0634\u0627\u0631\u0629 \u0627\u0644\u0622\u0646.',
                                     'Commencez la consultation maintenant.',
                                   ),
                                 ),
@@ -976,27 +1065,41 @@ class _ChatScreenState extends State<ChatScreen>
                     ),
                   ),
                   if (_roomClosed)
-                    _ClosedRoomPanel(
-                      tr: tr,
-                      isPatient: widget.currentUser.role == UserRole.patient,
-                      onNewRequest: widget.currentUser.role == UserRole.patient
-                          ? _startNewConsultationRequest
-                          : null,
+                    SafeArea(
+                      top: false,
+                      minimum: const EdgeInsets.fromLTRB(8, 2, 8, 8),
+                      child: _ClosedRoomPanel(
+                        tr: tr,
+                        isPatient: widget.currentUser.role == UserRole.patient,
+                      ),
                     )
                   else
-                    _WhatsAppComposerBar(
-                      tr: tr,
-                      controller: _textController,
-                      onSend: _sendText,
-                      onPickImage: _pickAndSendImage,
-                      onStartVoiceCall: _requestCall,
-                      canStartVoiceCall:
-                          !_incomingRequest &&
-                          !_outgoingRequest &&
-                          !_activeSession &&
-                          !_launchingCall,
-                      onInputTap: () => _scrollToBottomRobust(),
-                      inputFocusNode: _inputFocusNode,
+                    AnimatedPadding(
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOutCubic,
+                      padding: EdgeInsets.only(
+                        bottom: MediaQuery.of(context).viewInsets.bottom > 0
+                            ? 4
+                            : 0,
+                      ),
+                      child: SafeArea(
+                        top: false,
+                        minimum: const EdgeInsets.fromLTRB(8, 2, 8, 8),
+                        child: _WhatsAppComposerBar(
+                          tr: tr,
+                          controller: _textController,
+                          onSend: _sendText,
+                          onPickImage: _pickAndSendImage,
+                          onStartVoiceCall: _requestCall,
+                          canStartVoiceCall:
+                              !_incomingRequest &&
+                              !_outgoingRequest &&
+                              !_activeSession &&
+                              !_launchingCall,
+                          onInputTap: () => _scrollToBottomRobust(),
+                          inputFocusNode: _inputFocusNode,
+                        ),
+                      ),
                     ),
                 ],
               ),
@@ -1065,23 +1168,65 @@ class _Backdrop extends StatelessWidget {
   }
 }
 
-class _HeaderPeerAvatar extends StatelessWidget {
+class _HeaderPeerAvatar extends StatefulWidget {
   const _HeaderPeerAvatar({required this.imageUrl, required this.fallbackText});
 
   final String imageUrl;
   final String fallbackText;
 
   @override
+  State<_HeaderPeerAvatar> createState() => _HeaderPeerAvatarState();
+}
+
+class _HeaderPeerAvatarState extends State<_HeaderPeerAvatar> {
+  late List<String> _candidates;
+  int _candidateIndex = 0;
+  bool _advanceScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _resetCandidates();
+  }
+
+  @override
+  void didUpdateWidget(covariant _HeaderPeerAvatar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.imageUrl != widget.imageUrl) {
+      _resetCandidates();
+    }
+  }
+
+  void _resetCandidates() {
+    _candidates = _buildPhotoCandidates(widget.imageUrl);
+    _candidateIndex = 0;
+    _advanceScheduled = false;
+  }
+
+  void _tryNextCandidate() {
+    if (_advanceScheduled) return;
+    if (_candidateIndex >= _candidates.length - 1) return;
+    _advanceScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        _candidateIndex += 1;
+        _advanceScheduled = false;
+      });
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final url = imageUrl.trim();
+    final url = _candidates.isEmpty ? '' : _candidates[_candidateIndex];
     final fallback = CircleAvatar(
       radius: 18,
       backgroundColor: isDark
           ? const Color(0xFF21425A)
           : const Color(0xFFCFE8F5),
       child: Text(
-        fallbackText,
+        widget.fallbackText,
         style: TextStyle(
           fontSize: 15,
           fontWeight: FontWeight.w800,
@@ -1104,26 +1249,168 @@ class _HeaderPeerAvatar extends StatelessWidget {
           width: 36,
           height: 36,
           fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) => Container(
-            width: 36,
-            height: 36,
-            color: isDark ? const Color(0xFF21425A) : const Color(0xFFCFE8F5),
-            alignment: Alignment.center,
-            child: Text(
-              fallbackText,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                color: isDark
-                    ? const Color(0xFFEAF7FF)
-                    : const Color(0xFF13405A),
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) {
+              return child;
+            }
+            return Container(
+              width: 36,
+              height: 36,
+              color: isDark ? const Color(0xFF21425A) : const Color(0xFFCFE8F5),
+              alignment: Alignment.center,
+              child: Text(
+                widget.fallbackText,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: isDark
+                      ? const Color(0xFFEAF7FF)
+                      : const Color(0xFF13405A),
+                ),
               ),
-            ),
-          ),
+            );
+          },
+          errorBuilder: (context, error, stackTrace) {
+            _tryNextCandidate();
+            return Container(
+              width: 36,
+              height: 36,
+              color: isDark ? const Color(0xFF21425A) : const Color(0xFFCFE8F5),
+              alignment: Alignment.center,
+              child: Text(
+                widget.fallbackText,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: isDark
+                      ? const Color(0xFFEAF7FF)
+                      : const Color(0xFF13405A),
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
   }
+}
+
+List<String> _buildPhotoCandidates(String rawUrl) {
+  final raw = rawUrl.trim();
+  if (raw.isEmpty) return const <String>[];
+
+  final apiBase = const String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://10.0.2.2:3000/api',
+  ).trim();
+  final apiUri = Uri.tryParse(apiBase);
+  final uri = Uri.tryParse(raw);
+  final candidates = <String>[];
+
+  void addCandidate(String? value) {
+    final text = value?.trim() ?? '';
+    if (text.isEmpty) return;
+    if (!candidates.contains(text)) {
+      candidates.add(text);
+    }
+  }
+
+  bool isUploadsPath(String path) {
+    return path.startsWith('/uploads/') ||
+        path.contains('/uploads/') ||
+        path.startsWith('uploads/') ||
+        path.contains('uploads/') ||
+        path.startsWith('/api/uploads/') ||
+        path.contains('/api/uploads/');
+  }
+
+  String normalizeUploadPath(String path) {
+    if (path.startsWith('/api/uploads/')) {
+      return path.replaceFirst('/api/uploads/', '/uploads/');
+    }
+    if (path.contains('/api/uploads/')) {
+      return path.replaceFirst('/api/uploads/', '/uploads/');
+    }
+    final uploadsIndex = path.indexOf('/uploads/');
+    if (uploadsIndex >= 0) {
+      return path.substring(uploadsIndex);
+    }
+    return path;
+  }
+
+  if (uri == null) {
+    addCandidate(raw);
+    return candidates;
+  }
+
+  final normalizedPath = normalizeUploadPath(uri.path);
+  final normalizedPathWithSlash = normalizedPath.startsWith('/')
+      ? normalizedPath
+      : '/$normalizedPath';
+  final uploadsPath = isUploadsPath(normalizedPathWithSlash);
+  final preferredScheme = (apiUri != null && apiUri.scheme.isNotEmpty)
+      ? apiUri.scheme
+      : (uri.hasScheme ? uri.scheme : 'https');
+
+  // Prefer canonical API host URL first to avoid long hangs on stale :3000 links.
+  if (uploadsPath && apiUri != null && apiUri.host.isNotEmpty) {
+    addCandidate(
+      apiUri
+          .replace(
+            path: normalizedPathWithSlash,
+            query: uri.query.isEmpty ? null : uri.query,
+            fragment: uri.fragment.isEmpty ? null : uri.fragment,
+          )
+          .toString(),
+    );
+  }
+
+  if (uri.hasScheme) {
+    addCandidate(
+      uri.replace(port: null, path: normalizedPathWithSlash).toString(),
+    );
+    addCandidate(uri.replace(path: normalizedPathWithSlash).toString());
+  } else if (apiUri != null && apiUri.host.isNotEmpty) {
+    addCandidate(
+      apiUri
+          .replace(
+            path: normalizedPathWithSlash,
+            query: uri.query.isEmpty ? null : uri.query,
+            fragment: uri.fragment.isEmpty ? null : uri.fragment,
+          )
+          .toString(),
+    );
+  }
+
+  if (apiUri != null && apiUri.host.isNotEmpty) {
+    addCandidate(
+      uri
+          .replace(
+            scheme: preferredScheme,
+            host: apiUri.host,
+            port: apiUri.hasPort ? apiUri.port : null,
+            path: normalizedPathWithSlash,
+            query: uri.query.isEmpty ? null : uri.query,
+            fragment: uri.fragment.isEmpty ? null : uri.fragment,
+          )
+          .toString(),
+    );
+    addCandidate(
+      uri
+          .replace(
+            scheme: preferredScheme,
+            host: apiUri.host,
+            port: null,
+            path: normalizedPathWithSlash,
+            query: uri.query.isEmpty ? null : uri.query,
+            fragment: uri.fragment.isEmpty ? null : uri.fragment,
+          )
+          .toString(),
+    );
+  }
+
+  addCandidate(raw);
+  return candidates;
 }
 
 class _DateChip extends StatelessWidget {
@@ -1284,7 +1571,7 @@ class _IncomingCallPanel extends StatelessWidget {
                   Expanded(
                     child: Text(
                       tr(
-                        'Ù…ÙƒØ§Ù„Ù…Ø© ÙˆØ§Ø±Ø¯Ø© Ù…Ù† $peerName',
+                        '\u0645\u0643\u0627\u0644\u0645\u0629 \u0648\u0627\u0631\u062F\u0629 \u0645\u0646 $peerName',
                         'Appel entrant de $peerName',
                       ),
                       style: const TextStyle(fontWeight: FontWeight.w700),
@@ -1302,7 +1589,12 @@ class _IncomingCallPanel extends StatelessWidget {
                         Icons.call_end_rounded,
                         color: Color(0xFFD32F2F),
                       ),
-                      label: Text(tr('Ø±ÙØ¶', 'Refuser')),
+                      label: Text(
+                        tr(
+                          '\u0631\u0641\u0636',
+                          'Refuser',
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -1310,7 +1602,12 @@ class _IncomingCallPanel extends StatelessWidget {
                     child: ElevatedButton.icon(
                       onPressed: onAccept,
                       icon: const Icon(Icons.call_rounded),
-                      label: Text(tr('Ø±Ø¯ ØµÙˆØªÙŠ', 'Accepter vocal')),
+                      label: Text(
+                        tr(
+                          '\u0642\u0628\u0648\u0644 \u0635\u0648\u062A\u064A',
+                          'Accepter vocal',
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -1387,7 +1684,12 @@ class _OutgoingCallPanel extends StatelessWidget {
               ),
               TextButton(
                 onPressed: onCancel,
-                child: Text(tr('Ø¥Ù„ØºØ§Ø¡', 'Annuler')),
+                child: Text(
+                  tr(
+                    '\u0625\u0644\u063A\u0627\u0621',
+                    'Annuler',
+                  ),
+                ),
               ),
             ],
           ),
@@ -1463,7 +1765,7 @@ class _ComposerBar extends StatelessWidget {
                 onTap: onInputTap,
                 decoration: InputDecoration(
                   hintText: tr(
-                    'Ø§ÙƒØªØ¨ Ø±Ø³Ø§Ù„ØªÙƒ Ù‡Ù†Ø§...',
+                    '\u0627\u0643\u062A\u0628 \u0631\u0633\u0627\u0644\u062A\u0643 \u0647\u0646\u0627...',
                     'Ecrivez votre message ici...',
                   ),
                   border: InputBorder.none,
@@ -1522,130 +1824,248 @@ class _WhatsAppComposerBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final shellColor = isDark
-        ? const Color(0xFF16212B)
-        : const Color(0xFFEFF3F7);
+        ? const Color(0xFF132131)
+        : const Color(0xFFF8FBFE);
+    final borderColor = isDark
+        ? const Color(0xFF2A4257).withValues(alpha: 0.8)
+        : const Color(0xFFD6E4F1);
     final iconColor = isDark
-        ? const Color(0xFFA9B8C7)
-        : const Color(0xFF6A7C8E);
-    final inputColor = isDark
-        ? const Color(0xFFEAF0F6)
-        : const Color(0xFF1F2E3B);
-    final hintColor = isDark
-        ? const Color(0xFF8295A9)
-        : const Color(0xFF8092A1);
+        ? const Color(0xFFCAE2F7)
+        : const Color(0xFF3C5C77);
     const actionColor = Color(0xFF11A77F);
 
-    return Container(
-      margin: const EdgeInsets.fromLTRB(8, 2, 8, 10),
-      child: Row(
-        children: [
-          Expanded(
-            child: Container(
-              constraints: const BoxConstraints(minHeight: 54, maxHeight: 132),
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              decoration: BoxDecoration(
-                color: shellColor,
-                borderRadius: BorderRadius.circular(32),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.7),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 450;
+        final textScale = MediaQuery.textScalerOf(context).scale(1);
+        final iconOnlyCall = constraints.maxWidth < 520 || textScale > 1.05;
+        final actionSize = constraints.maxWidth < 360
+            ? 36.0
+            : (constraints.maxWidth < 420 ? 40.0 : 42.0);
+        final inputFontSize = constraints.maxWidth < 350 ? 16.0 : 17.0;
+        final controlGap = constraints.maxWidth < 390 ? 4.0 : 6.0;
+
+        return Container(
+          margin: EdgeInsets.zero,
+          padding: EdgeInsets.fromLTRB(
+            compact ? 8 : 10,
+            compact ? 6 : 8,
+            compact ? 8 : 10,
+            compact ? 6 : 8,
+          ),
+          decoration: BoxDecoration(
+            color: shellColor,
+            borderRadius: BorderRadius.circular(compact ? 24 : 28),
+            border: Border.all(color: borderColor),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.18 : 0.06),
+                blurRadius: 20,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _ComposerActionButton(
+                icon: Icons.photo_library_rounded,
+                tooltip: tr('\u0625\u0631\u0633\u0627\u0644 \u0635\u0648\u0631\u0629', 'Envoyer une image'),
+                onPressed: onPickImage,
+                size: actionSize,
+                backgroundColor: isDark
+                    ? const Color(0xFF1F3344)
+                    : const Color(0xFFE4EDF7),
+                foregroundColor: iconColor,
+              ),
+              SizedBox(width: controlGap),
+              Expanded(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    minHeight: 44,
+                    maxHeight: 140,
+                  ),
+                  child: TextField(
+                    controller: controller,
+                    focusNode: inputFocusNode,
+                    minLines: 1,
+                    maxLines: 5,
+                    onTap: onInputTap,
+                    keyboardType: TextInputType.multiline,
+                    textInputAction: TextInputAction.newline,
+                    style: TextStyle(
+                      fontSize: inputFontSize,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: tr(
+                        '\u0627\u0643\u062A\u0628 \u0631\u0633\u0627\u0644\u062A\u0643...',
+                        'Ecrivez votre message...',
+                      ),
+                      hintStyle: TextStyle(
+                        color: isDark
+                            ? const Color(0xFF8CA4BA)
+                            : const Color(0xFF7A92A7),
+                      ),
+                      filled: true,
+                      fillColor: isDark
+                          ? const Color(0xFF0F1B27)
+                          : const Color(0xFFEFF4FA),
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: compact ? 10 : 11,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: BorderSide.none,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: BorderSide.none,
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: BorderSide(
+                          color: actionColor.withValues(
+                            alpha: isDark ? 0.7 : 0.45,
+                          ),
+                          width: 1.2,
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Padding(
-                    padding: const EdgeInsetsDirectional.only(start: 6, end: 2),
+              SizedBox(width: controlGap),
+              if (iconOnlyCall)
+                _ComposerActionButton(
+                  icon: Icons.call_rounded,
+                  tooltip: tr(
+                    '\u0628\u062F\u0621 \u0645\u0643\u0627\u0644\u0645\u0629',
+                    'Demarrer un appel',
+                  ),
+                  onPressed: canStartVoiceCall ? onStartVoiceCall : null,
+                  size: actionSize,
+                  backgroundColor: actionColor,
+                  disabledBackgroundColor: isDark
+                      ? const Color(0xFF2A3948)
+                      : const Color(0xFFD2DCE5),
+                  foregroundColor: Colors.white,
+                )
+              else
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: math.max(82, constraints.maxWidth * 0.24),
+                  ),
+                  child: SizedBox(
+                    height: actionSize + 2,
                     child: FilledButton.icon(
-                      onPressed: canStartVoiceCall ? onStartVoiceCall : null,
+                      onPressed: canStartVoiceCall
+                          ? () => unawaited(onStartVoiceCall())
+                          : null,
                       style: FilledButton.styleFrom(
                         elevation: 0,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 10,
-                        ),
-                        minimumSize: const Size(0, 40),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        backgroundColor: const Color(0xFF11A77F),
-                        disabledBackgroundColor: iconColor.withValues(
-                          alpha: isDark ? 0.22 : 0.35,
-                        ),
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        backgroundColor: actionColor,
+                        disabledBackgroundColor: isDark
+                            ? const Color(0xFF2A3948)
+                            : const Color(0xFFD2DCE5),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(18),
+                          borderRadius: BorderRadius.circular(14),
                         ),
                       ),
-                      icon: const Icon(
-                        Icons.call_rounded,
-                        size: 18,
-                        color: Colors.white,
-                      ),
+                      icon: const Icon(Icons.call_rounded, size: 18),
                       label: Text(
-                        tr('Ø§Ø³ØªØ´Ø§Ø±Ø©', 'Consulter'),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                        ),
+                        tr('\u0627\u062A\u0635\u0627\u0644', 'Appel'),
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                     ),
                   ),
-                  IconButton(
-                    onPressed: onPickImage,
-                    icon: Icon(
-                      Icons.photo_outlined,
-                      color: iconColor,
-                      size: 23,
-                    ),
-                  ),
-                  Expanded(
-                    child: TextField(
-                      controller: controller,
-                      focusNode: inputFocusNode,
-                      minLines: 1,
-                      maxLines: 5,
-                      onTap: onInputTap,
-                      style: TextStyle(fontSize: 19, color: inputColor),
-                      decoration: InputDecoration(
-                        hintText: tr('Message', 'Message'),
-                        hintStyle: TextStyle(color: hintColor),
-                        border: InputBorder.none,
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 12,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                ),
+              SizedBox(width: controlGap),
+              ValueListenableBuilder<TextEditingValue>(
+                valueListenable: controller,
+                builder: (context, value, child) {
+                  final hasText = value.text.trim().isNotEmpty;
+                  return _ComposerActionButton(
+                    icon: Icons.send_rounded,
+                    tooltip: tr('\u0625\u0631\u0633\u0627\u0644', 'Envoyer'),
+                    onPressed: hasText ? onSend : null,
+                    size: actionSize + 2,
+                    backgroundColor: actionColor,
+                    disabledBackgroundColor: isDark
+                        ? const Color(0xFF2A3948)
+                        : const Color(0xFFD2DCE5),
+                    foregroundColor: Colors.white,
+                  );
+                },
               ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ComposerActionButton extends StatelessWidget {
+  const _ComposerActionButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+    required this.size,
+    required this.backgroundColor,
+    required this.foregroundColor,
+    this.disabledBackgroundColor,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final Future<void> Function()? onPressed;
+  final double size;
+  final Color backgroundColor;
+  final Color foregroundColor;
+  final Color? disabledBackgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = onPressed == null;
+    final resolvedBackground = disabled
+        ? (disabledBackgroundColor ?? backgroundColor.withValues(alpha: 0.45))
+        : backgroundColor;
+
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: resolvedBackground,
+        borderRadius: BorderRadius.circular(size / 2),
+        child: InkWell(
+          onTap: onPressed == null ? null : () => unawaited(onPressed!.call()),
+          customBorder: const CircleBorder(),
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Icon(
+              icon,
+              size: size * 0.48,
+              color: disabled
+                  ? foregroundColor.withValues(alpha: 0.55)
+                  : foregroundColor,
             ),
           ),
-          const SizedBox(width: 8),
-          ValueListenableBuilder<TextEditingValue>(
-            valueListenable: controller,
-            builder: (context, value, child) {
-              final hasText = value.text.trim().isNotEmpty;
-              return SizedBox(
-                width: 52,
-                height: 52,
-                child: FloatingActionButton(
-                  heroTag: null,
-                  elevation: 0,
-                  backgroundColor: actionColor,
-                  onPressed: hasText ? onSend : null,
-                  child: const Icon(Icons.send_rounded, color: Colors.white),
-                ),
-              );
-            },
-          ),
-        ],
+        ),
       ),
     );
   }
 }
 
-class _ConsultationCard extends StatelessWidget {
+class _ConsultationCard extends StatefulWidget {
   const _ConsultationCard({
     required this.consultation,
     required this.loading,
@@ -1661,13 +2081,22 @@ class _ConsultationCard extends StatelessWidget {
   final VoidCallback onEdit;
 
   @override
+  State<_ConsultationCard> createState() => _ConsultationCardState();
+}
+
+class _ConsultationCardState extends State<_ConsultationCard> {
+  bool _symptomsExpanded = false;
+
+  @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final consultation = widget.consultation;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: sihhaGlassCardDecoration(context: context),
-      child: loading
+      child: widget.loading
           ? Row(
               children: [
                 const SizedBox(
@@ -1676,66 +2105,153 @@ class _ConsultationCard extends StatelessWidget {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
                 const SizedBox(width: 10),
-                Text(tr('جارِ تحميل بيانات الاستشارة...', 'Chargement...')),
+                Text(
+                  widget.tr(
+                    '\u062c\u0627\u0631\u064d \u062a\u062d\u0645\u064a\u0644 \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0627\u0633\u062a\u0634\u0627\u0631\u0629...',
+                    'Chargement...',
+                  ),
+                ),
               ],
             )
           : (consultation == null
-              ? Text(
-                  tr('لا توجد بيانات استشارة مرتبطة بهذه المحادثة.', 'Aucune donnée de consultation.'),
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                )
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            tr('بيانات الاستشارة', 'Données de consultation'),
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
+                ? Text(
+                    widget.tr(
+                      '\u0644\u0627 \u062a\u0648\u062c\u062f \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0633\u062a\u0634\u0627\u0631\u0629 \u0645\u0631\u062a\u0628\u0637\u0629 \u0628\u0647\u0630\u0647 \u0627\u0644\u0645\u062d\u0627\u062f\u062b\u0629.',
+                      'Aucune donnee de consultation.',
+                    ),
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              widget.tr(
+                                '\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0627\u0633\u062a\u0634\u0627\u0631\u0629',
+                                'Donnees de consultation',
+                              ),
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
-                        ),
-                        if (isDoctor)
-                          TextButton.icon(
-                            onPressed: onEdit,
-                            icon: const Icon(Icons.edit_rounded, size: 18),
-                            label: Text(tr('تعديل', 'Modifier')),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    _line(tr('المريض', 'Patient'), consultation!.patientName),
-                    _line(tr('المستفيد', 'Bénéficiaire'), consultation!.subjectName),
-                    _line(
-                      tr('العمر / الجنس', 'Âge / sexe'),
-                      '${consultation!.ageYears} / ${consultation!.gender == RequestGender.male ? tr('ذكر', 'Homme') : tr('أنثى', 'Femme')}',
-                    ),
-                    _line(tr('الوزن (كغ)', 'Poids (kg)'), consultation!.weightKg.toString()),
-                    _line(
-                      tr('اللغة', 'Langue'),
-                      consultation!.spokenLanguage == SpokenLanguage.ar
-                          ? tr('عربي', 'Arabe')
-                          : consultation!.spokenLanguage == SpokenLanguage.fr
-                              ? tr('فرنسي', 'Français')
-                              : tr('مزدوج', 'Bilingue'),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      tr('الأعراض', 'Symptômes'),
+                          if (widget.isDoctor)
+                            TextButton.icon(
+                              onPressed: widget.onEdit,
+                              icon: const Icon(Icons.edit_rounded, size: 18),
+                              label: Text(
+                                widget.tr(
+                                  '\u062a\u0639\u062f\u064a\u0644',
+                                  'Modifier',
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      _line(
+                        widget.tr('\u0627\u0644\u0645\u0631\u064a\u0636', 'Patient'),
+                        consultation.patientName,
+                      ),
+                      _line(
+                        widget.tr('\u0627\u0644\u0645\u0633\u062a\u0641\u064a\u062f', 'Beneficiaire'),
+                        consultation.subjectName,
+                      ),
+                      _line(
+                        widget.tr('\u0627\u0644\u0639\u0645\u0631 / \u0627\u0644\u062c\u0646\u0633', 'Age / sexe'),
+                        '${consultation.ageYears} / ${consultation.gender == RequestGender.male ? widget.tr('\u0630\u0643\u0631', 'Homme') : widget.tr('\u0623\u0646\u062b\u0649', 'Femme')}',
+                      ),
+                      _line(
+                        widget.tr('\u0627\u0644\u0648\u0632\u0646 (\u0643\u063a)', 'Poids (kg)'),
+                        consultation.weightKg.toString(),
+                      ),
+                      _line(
+                        widget.tr('\u0627\u0644\u0644\u063a\u0629', 'Langue'),
+                        consultation.spokenLanguage == SpokenLanguage.ar
+                            ? widget.tr('\u0639\u0631\u0628\u064a', 'Arabe')
+                            : consultation.spokenLanguage == SpokenLanguage.fr
+                            ? widget.tr('\u0641\u0631\u0646\u0633\u064a', 'Francais')
+                            : widget.tr('\u0645\u0632\u062f\u0648\u062c', 'Bilingue'),
+                      ),
+                      const SizedBox(height: 8),
+                      _buildSymptomsSection(
+                        isDark: isDark,
+                        symptoms: consultation.symptoms,
+                      ),
+                    ],
+                  )),
+    );
+  }
+
+  Widget _buildSymptomsSection({
+    required bool isDark,
+    required String symptoms,
+  }) {
+    final normalizedSymptoms = symptoms.trim();
+    final symptomsText = normalizedSymptoms.isEmpty
+        ? widget.tr(
+            '\u0644\u0627 \u062a\u0648\u062c\u062f \u0623\u0639\u0631\u0627\u0636 \u0645\u0633\u062c\u0644\u0629 \u0628\u0639\u062f.',
+            'Aucun symptome renseigne.',
+          )
+        : normalizedSymptoms;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () {
+              setState(() {
+                _symptomsExpanded = !_symptomsExpanded;
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.tr('\u0627\u0644\u0623\u0639\u0631\u0627\u0636', 'Symptomes'),
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      consultation!.symptoms,
+                  ),
+                  AnimatedRotation(
+                    turns: _symptomsExpanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeInOut,
+                    child: Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: isDark ? Colors.white70 : const Color(0xFF334155),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        ClipRect(
+          child: AnimatedSize(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOut,
+            child: _symptomsExpanded
+                ? Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      symptomsText,
                       style: TextStyle(
                         color: isDark ? Colors.white70 : const Color(0xFF334155),
                       ),
                     ),
-                  ],
-                )),
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1744,14 +2260,8 @@ class _ConsultationCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: [
-          Text('$label: ',
-              style: const TextStyle(fontWeight: FontWeight.w700)),
-          Expanded(
-            child: Text(
-              value,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
+          Text('$label: ', style: const TextStyle(fontWeight: FontWeight.w700)),
+          Expanded(child: Text(value, overflow: TextOverflow.ellipsis)),
         ],
       ),
     );
@@ -1759,15 +2269,10 @@ class _ConsultationCard extends StatelessWidget {
 }
 
 class _ClosedRoomPanel extends StatelessWidget {
-  const _ClosedRoomPanel({
-    required this.tr,
-    required this.isPatient,
-    this.onNewRequest,
-  });
+  const _ClosedRoomPanel({required this.tr, required this.isPatient});
 
   final String Function(String, String) tr;
   final bool isPatient;
-  final VoidCallback? onNewRequest;
 
   @override
   Widget build(BuildContext context) {
@@ -1785,7 +2290,10 @@ class _ClosedRoomPanel extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  tr('تم إغلاق هذه الاستشارة.', 'Cette consultation est clôturée.'),
+                  tr(
+                    '\u0647\u0630\u0647 \u0627\u0644\u0627\u0633\u062A\u0634\u0627\u0631\u0629 \u0645\u063A\u0644\u0642\u0629.',
+                    'Cette consultation est cloturee.',
+                  ),
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
@@ -1794,23 +2302,21 @@ class _ClosedRoomPanel extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             isPatient
-                ? tr('لطلب التواصل مجدداً، أرسل طلب استشارة جديد لهذا الطبيب.',
-                    'Pour reprendre contact, envoyez une nouvelle demande de consultation à ce médecin.')
-                : tr('لا يمكن للمريض إرسال رسائل بعد الإغلاق.', 'Le patient ne peut plus envoyer de messages.'),
+                ? tr(
+                    '\u0644\u0645 \u064A\u0639\u062F \u0628\u0625\u0645\u0643\u0627\u0646 \u0627\u0644\u0645\u0631\u064A\u0636 \u0625\u0631\u0633\u0627\u0644 \u0631\u0633\u0627\u0626\u0644.',
+                    'Vous ne pouvez plus envoyer de messages apres la cloture de cette consultation.',
+                  )
+                : tr(
+                    '\u0644\u0627 \u064A\u0645\u0643\u0646 \u0644\u0644\u0645\u0631\u064A\u0636 \u0625\u0631\u0633\u0627\u0644 \u0631\u0633\u0627\u0626\u0644 \u0628\u0639\u062F \u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u0627\u0633\u062A\u0634\u0627\u0631\u0629.',
+                    'Le patient ne peut plus envoyer de messages.',
+                  ),
             style: TextStyle(
               color: isDark ? Colors.white70 : const Color(0xFF334155),
             ),
           ),
-          if (isPatient && onNewRequest != null) ...[
-            const SizedBox(height: 10),
-            FilledButton.icon(
-              onPressed: onNewRequest,
-              icon: const Icon(Icons.medical_services_outlined),
-              label: Text(tr('طلب استشارة جديدة', 'Nouvelle demande')),
-            ),
-          ],
         ],
       ),
     );
   }
 }
+

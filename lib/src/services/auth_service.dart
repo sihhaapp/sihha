@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -71,17 +72,36 @@ class AuthService {
     final body = await _apiService.get('/auth/me');
     final map = _readMap(body);
     final userMap = _readMap(map['user']);
-    return AppUser.fromMap((userMap['id'] as String?) ?? '', userMap);
+    final normalizedUserMap = _normalizeUserMap(userMap);
+    return AppUser.fromMap(
+      (normalizedUserMap['id'] as String?) ?? '',
+      normalizedUserMap,
+    );
   }
 
-  Future<void> updateProfilePhotoFromFile(File imageFile) async {
+  Future<AppUser> updateProfilePhotoFromFile(File imageFile) async {
     if (!await imageFile.exists()) {
       throw const FormatException('invalid-photo-file');
     }
-    await _apiService.postMultipart(
+    final body = await _apiService.postMultipart(
       path: '/users/me/photo',
       fileField: 'photo',
       filePath: imageFile.path,
+    );
+    final map = _readMap(body);
+    final userMap = _readMap(map['user']);
+    final normalizedUserMap = _normalizeUserMap(userMap);
+    if (kDebugMode) {
+      final rawPhotoUrl = (userMap['photoUrl'] as String?)?.trim() ?? '';
+      final normalizedPhotoUrl =
+          (normalizedUserMap['photoUrl'] as String?)?.trim() ?? '';
+      debugPrint(
+        'AuthService.updateProfilePhotoFromFile raw=$rawPhotoUrl normalized=$normalizedPhotoUrl apiBase=${_apiService.baseUrl}',
+      );
+    }
+    return AppUser.fromMap(
+      (normalizedUserMap['id'] as String?) ?? '',
+      normalizedUserMap,
     );
   }
 
@@ -132,11 +152,63 @@ class AuthService {
     }
 
     final userMap = _readMap(map['user']);
-    final user = AppUser.fromMap((userMap['id'] as String?) ?? '', userMap);
+    final normalizedUserMap = _normalizeUserMap(userMap);
+    final user = AppUser.fromMap(
+      (normalizedUserMap['id'] as String?) ?? '',
+      normalizedUserMap,
+    );
 
     await _saveToken(token);
     _apiService.setAuthToken(token);
     return user;
+  }
+
+  Map<String, dynamic> _normalizeUserMap(Map<String, dynamic> userMap) {
+    final normalized = Map<String, dynamic>.from(userMap);
+    normalized['photoUrl'] = _normalizePhotoUrl(normalized['photoUrl']);
+    return normalized;
+  }
+
+  String _normalizePhotoUrl(dynamic value) {
+    final raw = (value as String?)?.trim() ?? '';
+    if (raw.isEmpty) {
+      return '';
+    }
+
+    final apiUri = Uri.tryParse(_apiService.baseUrl);
+    if (apiUri == null || apiUri.host.isEmpty) {
+      return raw;
+    }
+
+    final sourceUri = Uri.tryParse(raw);
+    if (sourceUri == null) {
+      return raw;
+    }
+
+    final normalizedPath = _normalizeUploadPath(sourceUri.path);
+    final isUploadsPath = normalizedPath.startsWith('/uploads/');
+    if (!isUploadsPath) {
+      return raw;
+    }
+
+    return apiUri
+        .replace(
+          path: normalizedPath,
+          query: sourceUri.query.isEmpty ? null : sourceUri.query,
+          fragment: sourceUri.fragment.isEmpty ? null : sourceUri.fragment,
+        )
+        .toString();
+  }
+
+  String _normalizeUploadPath(String path) {
+    if (path.startsWith('/api/uploads/')) {
+      return path.replaceFirst('/api/uploads/', '/uploads/');
+    }
+    final index = path.indexOf('/uploads/');
+    if (index >= 0) {
+      return path.substring(index);
+    }
+    return path;
   }
 
   Map<String, dynamic> _readMap(dynamic value) {

@@ -1,4 +1,7 @@
-﻿enum UserRole {
+import '../utils/text_normalizer.dart';
+import '../utils/media_url_normalizer.dart';
+
+enum UserRole {
   patient,
   doctor;
 
@@ -13,9 +16,9 @@
 
   String label({required bool isArabic}) {
     if (this == UserRole.doctor) {
-      return isArabic ? 'طبيب' : 'Medecin';
+      return isArabic ? '\u0637\u0628\u064a\u0628' : 'Medecin';
     }
-    return isArabic ? 'مريض' : 'Patient';
+    return isArabic ? '\u0645\u0631\u064a\u0636' : 'Patient';
   }
 }
 
@@ -75,7 +78,7 @@ class AppUser {
     return AppUser(
       id: id,
       name: (map['name'] as String?)?.trim().isNotEmpty == true
-          ? (map['name'] as String).trim()
+          ? normalizePossiblyMojibake((map['name'] as String).trim())
           : 'User',
       phoneNumber: _readPhoneNumber(map),
       role: UserRole.fromValue(map['role'] as String?),
@@ -83,8 +86,12 @@ class AppUser {
       photoUrl: _normalizePhotoUrl(map['photoUrl']),
       isAdmin: _readBool(map['isAdmin']),
       isDisabled: _readBool(map['isDisabled']),
-      specialty: (map['specialty'] as String?)?.trim() ?? '',
-      hospitalName: (map['hospitalName'] as String?)?.trim() ?? '',
+      specialty: normalizePossiblyMojibake(
+        (map['specialty'] as String?)?.trim() ?? '',
+      ),
+      hospitalName: normalizePossiblyMojibake(
+        (map['hospitalName'] as String?)?.trim() ?? '',
+      ),
       experienceYears: _readInt(map['experienceYears']),
       studyYears: _readInt(map['studyYears']),
       disabledAt: _readNullableDate(map['disabledAt']),
@@ -171,36 +178,5 @@ bool _readBool(dynamic value) {
 }
 
 String _normalizePhotoUrl(dynamic value) {
-  final raw = (value as String?)?.trim() ?? '';
-  if (raw.isEmpty) {
-    return '';
-  }
-
-  final uri = Uri.tryParse(raw);
-  if (uri == null || !uri.hasScheme) {
-    return raw;
-  }
-
-  final host = uri.host.toLowerCase();
-  final isLoopbackHost =
-      host == 'localhost' || host == '127.0.0.1' || host == '10.0.2.2';
-  if (!isLoopbackHost) {
-    return raw;
-  }
-
-  final apiBase = const String.fromEnvironment(
-    'API_BASE_URL',
-    defaultValue: 'http://10.0.2.2:3000/api',
-  ).trim();
-  final apiUri = Uri.tryParse(apiBase);
-  if (apiUri == null || apiUri.host.isEmpty) {
-    return raw;
-  }
-
-  final normalized = uri.replace(
-    scheme: apiUri.scheme.isEmpty ? uri.scheme : apiUri.scheme,
-    host: apiUri.host,
-    port: apiUri.hasPort ? apiUri.port : uri.port,
-  );
-  return normalized.toString();
+  return normalizeBackendMediaUrl(value);
 }

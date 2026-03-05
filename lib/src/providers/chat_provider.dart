@@ -8,6 +8,7 @@ import '../models/app_user.dart';
 import '../models/chat_message.dart';
 import '../models/chat_room.dart';
 import '../models/consultation_request.dart';
+import '../models/medical_record.dart';
 import '../services/api_service.dart';
 import '../services/chat_service.dart';
 import '../services/voice_service.dart';
@@ -18,6 +19,25 @@ class ChatProvider extends ChangeNotifier {
     _playerStateSubscription = _audioPlayer.playerStateStream.listen((state) {
       if (state.processingState == ProcessingState.completed) {
         _activeAudioUrl = null;
+        _activeAudioPosition = Duration.zero;
+        _activeAudioDuration = Duration.zero;
+        notifyListeners();
+      }
+    });
+    _audioPositionSubscription = _audioPlayer.positionStream.listen((position) {
+      if (_activeAudioUrl == null) return;
+      if (position == _activeAudioPosition) return;
+      final delta =
+          (position.inMilliseconds - _activeAudioPosition.inMilliseconds).abs();
+      if (delta < 70 && position != Duration.zero) return;
+      _activeAudioPosition = position;
+      notifyListeners();
+    });
+    _audioDurationSubscription = _audioPlayer.durationStream.listen((duration) {
+      final resolved = duration ?? Duration.zero;
+      if (resolved == _activeAudioDuration) return;
+      _activeAudioDuration = resolved;
+      if (_activeAudioUrl != null) {
         notifyListeners();
       }
     });
@@ -28,29 +48,55 @@ class ChatProvider extends ChangeNotifier {
   final AudioPlayer _audioPlayer = AudioPlayer();
 
   StreamSubscription<PlayerState>? _playerStateSubscription;
+  StreamSubscription<Duration>? _audioPositionSubscription;
+  StreamSubscription<Duration?>? _audioDurationSubscription;
   bool _isRecording = false;
   bool _isBusy = false;
   String? _errorMessage;
   String? _activeAudioUrl;
+  Duration _activeAudioPosition = Duration.zero;
+  Duration _activeAudioDuration = Duration.zero;
   DateTime? _recordStartedAt;
   final Map<String, ConsultationRequest> _consultationsByRoom =
       <String, ConsultationRequest>{};
+  final Map<String, MedicalRecord> _medicalRecordsByRoom =
+      <String, MedicalRecord>{};
 
   bool get isRecording => _isRecording;
   bool get isBusy => _isBusy;
-  String? get errorMessage => _errorMessage;
+  String? get errorMessage => _errorMessage == null
+      ? null
+      : AppSettingsProvider.normalizeText(_errorMessage!);
   String? get activeAudioUrl => _activeAudioUrl;
+  Duration get activeAudioPosition => _activeAudioPosition;
+  Duration get activeAudioDuration => _activeAudioDuration;
+  double get activeAudioProgress {
+    final totalMs = _activeAudioDuration.inMilliseconds;
+    if (totalMs <= 0) return 0;
+    final positionMs = _activeAudioPosition.inMilliseconds.clamp(0, totalMs);
+    return positionMs / totalMs;
+  }
+
   ConsultationRequest? getCachedConsultation(String roomId) =>
       _consultationsByRoom[roomId];
+  MedicalRecord? getCachedMedicalRecord(String roomId) =>
+      _medicalRecordsByRoom[roomId];
 
   void _cacheConsultation(String? roomId, ConsultationRequest request) {
-    final key = roomId ?? request.linkedRoomId;
-    if (key == null || key.isEmpty) return;
+    final key = (roomId ?? request.linkedRoomId)?.trim();
+    if (key == null || key.isEmpty) {
+      return;
+    }
     _consultationsByRoom[key] = request;
   }
 
   void rememberConsultation(String roomId, ConsultationRequest request) {
     _cacheConsultation(roomId, request);
+  }
+
+  void _cacheMedicalRecord(String roomId, MedicalRecord record) {
+    if (roomId.trim().isEmpty) return;
+    _medicalRecordsByRoom[roomId] = record;
   }
 
   Stream<List<AppUser>> doctorsStream() {
@@ -74,13 +120,24 @@ class ChatProvider extends ChangeNotifier {
   Stream<List<ChatMessage>> messagesStream(
     String roomId, {
     bool liveMode = false,
-  }) {
-    return _chatService.messagesForRoom(
+  }) async* {
+    final upstream = _chatService.messagesForRoom(
       roomId,
       interval: liveMode
-          ? const Duration(milliseconds: 800)
+          ? const Duration(milliseconds: 1200)
           : const Duration(seconds: 2),
     );
+
+    List<ChatMessage>? previous;
+    await for (final current in upstream) {
+      final previousSnapshot = previous;
+      if (previousSnapshot != null &&
+          _sameMessageList(previousSnapshot, current)) {
+        continue;
+      }
+      previous = List<ChatMessage>.unmodifiable(current);
+      yield current;
+    }
   }
 
   Future<ChatRoom> createOrGetRoom({
@@ -132,10 +189,12 @@ class ChatProvider extends ChangeNotifier {
     required String subjectName,
     required int ageYears,
     required RequestGender gender,
+    required RequestPregnancyStatus pregnancyStatus,
     required double weightKg,
     required String stateCode,
     required SpokenLanguage spokenLanguage,
     required String symptoms,
+    required String symptomsVoiceUrl,
   }) async {
     _errorMessage = null;
     notifyListeners();
@@ -146,10 +205,12 @@ class ChatProvider extends ChangeNotifier {
         subjectName: subjectName,
         ageYears: ageYears,
         gender: gender,
+        pregnancyStatus: pregnancyStatus,
         weightKg: weightKg,
         stateCode: stateCode,
         spokenLanguage: spokenLanguage,
         symptoms: symptoms,
+        symptomsVoiceUrl: symptomsVoiceUrl,
       );
     } catch (error) {
       _mapConsultationError(error);
@@ -157,7 +218,9 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  Future<Map<String, dynamic>?> acceptConsultationRequest(String requestId) async {
+  Future<Map<String, dynamic>?> acceptConsultationRequest(
+    String requestId,
+  ) async {
     _errorMessage = null;
     notifyListeners();
     try {
@@ -177,7 +240,9 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  Future<ConsultationRequest?> rejectConsultationRequest(String requestId) async {
+  Future<ConsultationRequest?> rejectConsultationRequest(
+    String requestId,
+  ) async {
     _errorMessage = null;
     notifyListeners();
     try {
@@ -199,9 +264,7 @@ class ChatProvider extends ChangeNotifier {
         requestId: requestId,
         doctorId: doctorId,
       );
-      if (updated != null) {
-        _cacheConsultation(updated.linkedRoomId, updated);
-      }
+      _cacheConsultation(updated.linkedRoomId, updated);
       return updated;
     } catch (error) {
       _mapConsultationError(error);
@@ -209,7 +272,9 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
-  Future<ConsultationRequest?> fetchConsultationRequestByRoom(String roomId) async {
+  Future<ConsultationRequest?> fetchConsultationRequestByRoom(
+    String roomId,
+  ) async {
     try {
       final req = await _chatService.fetchConsultationRequestByRoom(roomId);
       if (req != null) {
@@ -239,6 +304,58 @@ class ChatProvider extends ChangeNotifier {
     } catch (error) {
       _mapConsultationError(error);
       return null;
+    }
+  }
+
+  Future<MedicalRecord?> fetchMedicalRecordByRoom(String roomId) async {
+    try {
+      final record = await _chatService.fetchMedicalRecordByRoom(roomId);
+      if (record != null) {
+        _cacheMedicalRecord(roomId, record);
+      }
+      return record ?? getCachedMedicalRecord(roomId);
+    } catch (_) {
+      return getCachedMedicalRecord(roomId);
+    }
+  }
+
+  Future<MedicalRecord?> updateMedicalRecordByRoom({
+    required String roomId,
+    required Map<String, dynamic> payload,
+  }) async {
+    _errorMessage = null;
+    _isBusy = true;
+    notifyListeners();
+    try {
+      final updated = await _chatService.updateMedicalRecordByRoom(
+        roomId: roomId,
+        payload: payload,
+      );
+      if (updated != null) {
+        _cacheMedicalRecord(roomId, updated);
+      }
+      return updated;
+    } catch (error) {
+      _mapMedicalRecordError(error);
+      return null;
+    } finally {
+      _isBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<String?> uploadPrescriptionPdf(File file) async {
+    _errorMessage = null;
+    _isBusy = true;
+    notifyListeners();
+    try {
+      return await _chatService.uploadPrescriptionPdf(file: file);
+    } catch (error) {
+      _mapMedicalRecordError(error);
+      return null;
+    } finally {
+      _isBusy = false;
+      notifyListeners();
     }
   }
 
@@ -485,18 +602,60 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _mapMedicalRecordError(Object error) {
+    if (error is ApiException &&
+        error.code == 'prescription-pdf-invalid-type') {
+      _errorMessage = AppSettingsProvider.trGlobal(
+        'يجب رفع ملف PDF فقط.',
+        'Veuillez choisir uniquement un fichier PDF.',
+      );
+    } else if (error is ApiException &&
+        error.code == 'prescription-pdf-too-large') {
+      _errorMessage = AppSettingsProvider.trGlobal(
+        'حجم ملف الوصفة أكبر من الحد المسموح (10MB).',
+        'Le fichier PDF depasse la taille maximale (10MB).',
+      );
+    } else if (error is ApiException &&
+        error.code == 'medical-record-invalid-field') {
+      _errorMessage = AppSettingsProvider.trGlobal(
+        'إحدى خانات السجل الطبي طويلة جدًا.',
+        'Un champ du dossier medical est trop long.',
+      );
+    } else if (error is ApiException &&
+        error.code == 'medical-record-invalid-pdf-url') {
+      _errorMessage = AppSettingsProvider.trGlobal(
+        'رابط الوصفة الطبية غير صالح.',
+        'L URL de l ordonnance est invalide.',
+      );
+    } else if (error is ApiException &&
+        error.code == 'medical-record-empty-update') {
+      _errorMessage = AppSettingsProvider.trGlobal(
+        'لا توجد بيانات جديدة لحفظها.',
+        'Aucune nouvelle donnee a enregistrer.',
+      );
+    } else {
+      _errorMessage = AppSettingsProvider.trGlobal(
+        'تعذر تحديث السجل الطبي.',
+        'Impossible de mettre a jour le dossier medical.',
+      );
+    }
+    notifyListeners();
+  }
+
   void _mapConsultationError(Object error) {
     if (error is ApiException && error.code == "consultation-request-pending") {
       _errorMessage = AppSettingsProvider.trGlobal(
         'لديك طلب استشارة قيد الانتظار مع هذا الطبيب.',
         'Vous avez deja une demande en attente avec ce medecin.',
       );
-    } else if (error is ApiException && error.code == "consultation-request-exists") {
+    } else if (error is ApiException &&
+        error.code == "consultation-request-exists") {
       _errorMessage = AppSettingsProvider.trGlobal(
         'هناك استشارة قائمة أو مقبولة مع هذا الطبيب.',
         'Une consultation existe deja avec ce medecin.',
       );
-    } else if (error is ApiException && error.code == "consultation-room-exists") {
+    } else if (error is ApiException &&
+        error.code == "consultation-room-exists") {
       _errorMessage = AppSettingsProvider.trGlobal(
         'توجد محادثة قائمة بالفعل مع هذا الطبيب.',
         'Une discussion existe deja avec ce medecin.',
@@ -506,12 +665,14 @@ class ChatProvider extends ChangeNotifier {
         'الطبيب غير موجود.',
         'Medecin introuvable.',
       );
-    } else if (error is ApiException && error.code == "consultation-request-not-pending") {
+    } else if (error is ApiException &&
+        error.code == "consultation-request-not-pending") {
       _errorMessage = AppSettingsProvider.trGlobal(
         'هذا الطلب لم يعد قيد الانتظار.',
         'Cette demande n\'est plus en attente.',
       );
-    } else if (error is ApiException && error.code == "consultation-transfer-same-doctor") {
+    } else if (error is ApiException &&
+        error.code == "consultation-transfer-same-doctor") {
       _errorMessage = AppSettingsProvider.trGlobal(
         'لا يمكن التحويل إلى نفس الطبيب.',
         'Impossible de transferer vers le meme medecin.',
@@ -526,6 +687,7 @@ class ChatProvider extends ChangeNotifier {
   }
 
   Future<void> startRecording() async {
+    if (_isRecording) return;
     _errorMessage = null;
     _isBusy = true;
     notifyListeners();
@@ -535,7 +697,9 @@ class ChatProvider extends ChangeNotifier {
       _recordStartedAt = DateTime.now();
       _isRecording = true;
     } catch (error) {
-      _errorMessage = error.toString().replaceFirst('Bad state: ', '');
+      _errorMessage = AppSettingsProvider.normalizeText(
+        error.toString().replaceFirst('Bad state: ', ''),
+      );
     } finally {
       _isBusy = false;
       notifyListeners();
@@ -547,6 +711,7 @@ class ChatProvider extends ChangeNotifier {
     required String senderId,
     required String senderName,
   }) async {
+    if (!_isRecording) return;
     _errorMessage = null;
     _isBusy = true;
     notifyListeners();
@@ -564,11 +729,7 @@ class ChatProvider extends ChangeNotifier {
           .inSeconds
           .clamp(1, 300);
 
-      final url = await _chatService.uploadAudioFile(
-        roomId: roomId,
-        senderId: senderId,
-        file: File(filePath),
-      );
+      final url = await _chatService.uploadAudioFile(file: File(filePath));
 
       await _chatService.sendAudioMessage(
         roomId: roomId,
@@ -587,10 +748,48 @@ class ChatProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> cancelRecording() async {
+    if (!_isRecording) return;
+    _errorMessage = null;
+    _isBusy = true;
+    notifyListeners();
+    try {
+      await _voiceService.stopRecording();
+    } catch (_) {
+      // Ignore recorder stop failures during cancel.
+    } finally {
+      _isRecording = false;
+      _isBusy = false;
+      _recordStartedAt = null;
+      notifyListeners();
+    }
+  }
+
+  Future<String?> uploadConsultationSymptomsAudio({required File file}) async {
+    _errorMessage = null;
+    _isBusy = true;
+    notifyListeners();
+    try {
+      return await _chatService.uploadAudioFile(file: file);
+    } catch (_) {
+      _errorMessage = AppSettingsProvider.trGlobal(
+        'تعذر رفع التسجيل الصوتي للأعراض.',
+        'Impossible de televerser le message vocal des symptomes.',
+      );
+      notifyListeners();
+      return null;
+    } finally {
+      _isBusy = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> playOrPauseAudio(String url) async {
     if (_activeAudioUrl == url && _audioPlayer.playing) {
       await _audioPlayer.pause();
       _activeAudioUrl = null;
+      _activeAudioPosition = Duration.zero;
+      _activeAudioDuration = Duration.zero;
       notifyListeners();
       return;
     }
@@ -602,6 +801,8 @@ class ChatProvider extends ChangeNotifier {
     try {
       if (_activeAudioUrl != url) {
         await _audioPlayer.setUrl(url);
+        _activeAudioPosition = Duration.zero;
+        _activeAudioDuration = _audioPlayer.duration ?? Duration.zero;
       }
       await _audioPlayer.play();
       _activeAudioUrl = url;
@@ -611,6 +812,8 @@ class ChatProvider extends ChangeNotifier {
         'Impossible de lire le message vocal.',
       );
       _activeAudioUrl = null;
+      _activeAudioPosition = Duration.zero;
+      _activeAudioDuration = Duration.zero;
     } finally {
       _isBusy = false;
       notifyListeners();
@@ -642,8 +845,31 @@ class ChatProvider extends ChangeNotifier {
   @override
   void dispose() {
     _playerStateSubscription?.cancel();
+    _audioPositionSubscription?.cancel();
+    _audioDurationSubscription?.cancel();
     _audioPlayer.dispose();
     _voiceService.dispose();
     super.dispose();
+  }
+
+  bool _sameMessageList(List<ChatMessage> a, List<ChatMessage> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      final left = a[i];
+      final right = b[i];
+      if (left.id != right.id ||
+          left.roomId != right.roomId ||
+          left.senderId != right.senderId ||
+          left.type != right.type ||
+          left.content != right.content ||
+          left.durationSeconds != right.durationSeconds ||
+          left.sentAt != right.sentAt ||
+          left.deliveredAt != right.deliveredAt ||
+          left.readAt != right.readAt) {
+        return false;
+      }
+    }
+    return true;
   }
 }

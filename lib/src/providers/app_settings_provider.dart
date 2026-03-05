@@ -1,8 +1,8 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../utils/text_normalizer.dart';
 
 class AppSettingsProvider extends ChangeNotifier {
   AppSettingsProvider() {
@@ -14,10 +14,6 @@ class AppSettingsProvider extends ChangeNotifier {
   static const String _localePrefKey = 'app_locale';
   static const String _themePrefKey = 'app_theme_mode';
   static String _activeLanguageCode = 'ar';
-  static final RegExp _mojibakeHint = RegExp(r'[ØÙÃÂ]');
-  static final RegExp _brokenArabicHint = RegExp(
-    r'�|ا�"|�S|�f|�\^|�,|�\?|�\.|�"',
-  );
 
   ThemeMode _themeMode = ThemeMode.light;
   Locale _locale = const Locale('ar');
@@ -26,36 +22,15 @@ class AppSettingsProvider extends ChangeNotifier {
   Locale get locale => _locale;
   bool get isArabic => _locale.languageCode == 'ar';
 
-  String tr(String ar, String fr) => isArabic ? _repairArabic(ar) : fr;
+  String tr(String ar, String fr) =>
+      isArabic ? _repairText(ar) : _repairText(fr);
+
   static String trGlobal(String ar, String fr) =>
-      _activeLanguageCode == 'fr' ? fr : _repairArabic(ar);
+      _activeLanguageCode == 'fr' ? _repairText(fr) : _repairText(ar);
 
-  static String _repairArabic(String text) {
-    var repaired = text;
+  static String normalizeText(String text) => _repairText(text);
 
-    if (_mojibakeHint.hasMatch(repaired)) {
-      try {
-        repaired = utf8.decode(latin1.encode(repaired));
-      } catch (_) {
-        // Keep original value if decoding fails.
-      }
-    }
-
-    if (_brokenArabicHint.hasMatch(repaired)) {
-      repaired = repaired
-          .replaceAll('ا�"', 'ال')
-          .replaceAll('�S', 'ي')
-          .replaceAll('�f', 'ك')
-          .replaceAll('�^', 'و')
-          .replaceAll('�,', 'ق')
-          .replaceAll('�?', 'ن')
-          .replaceAll('�.', 'م')
-          .replaceAll('�"', 'ل')
-          .replaceAll('�', '');
-    }
-
-    return repaired;
-  }
+  static String _repairText(String text) => normalizePossiblyMojibake(text);
 
   Locale _resolveInitialLocale() {
     final deviceCode = WidgetsBinding

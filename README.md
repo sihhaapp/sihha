@@ -25,7 +25,7 @@ Android emulator:
 
 ```bash
 flutter pub get
-flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000/api
+flutter run --dart-define=API_BASE_URL=https://sihha.space/api
 ```
 
 Real device:
@@ -35,3 +35,4 @@ flutter run --dart-define=API_BASE_URL=http://YOUR_PC_IP:3000/api
 ```
 
 See `backend/README.md` for API and hosting details.
+

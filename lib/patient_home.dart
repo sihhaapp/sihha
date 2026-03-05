@@ -1,9 +1,7 @@
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import 'src/constants/medical_specialties.dart';
@@ -31,7 +29,6 @@ class PatientHomeScreen extends StatefulWidget {
 class _PatientHomeScreenState extends State<PatientHomeScreen>
     with SingleTickerProviderStateMixin {
   final TextEditingController _searchController = TextEditingController();
-  final ImagePicker _imagePicker = ImagePicker();
   late final AnimationController _bgController;
 
   int _currentIndex = 0;
@@ -85,9 +82,11 @@ class _PatientHomeScreenState extends State<PatientHomeScreen>
         ageYears: input.ageYears,
         gender: input.gender,
         weightKg: input.weightKg,
+        pregnancyStatus: input.pregnancyStatus,
         stateCode: input.stateCode,
         spokenLanguage: input.spokenLanguage,
         symptoms: input.symptoms,
+        symptomsVoiceUrl: input.symptomsVoiceUrl,
       );
       if (!mounted) return;
       if (request == null) {
@@ -108,7 +107,7 @@ class _PatientHomeScreenState extends State<PatientHomeScreen>
           SnackBar(
             content: Text(
               tr(
-                'تم إرسال طلب الاستشارة للطبيب بنجاح.',
+                'تم إرسال طلب الاستشارة بنجاح.',
                 'Votre demande de consultation a ete envoyee au medecin.',
               ),
             ),
@@ -155,228 +154,6 @@ class _PatientHomeScreenState extends State<PatientHomeScreen>
     setState(() => _currentIndex = index);
   }
 
-  Future<void> _pickProfilePhotoFromGallery(AuthProvider authProvider) async {
-    final tr = context.read<AppSettingsProvider>().tr;
-    try {
-      final pickedFile = await _imagePicker.pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 85,
-        maxWidth: 1080,
-        maxHeight: 1080,
-      );
-
-      if (pickedFile == null) {
-        return;
-      }
-
-      final success = await authProvider.updateProfilePhoto(
-        File(pickedFile.path),
-      );
-      if (!mounted) {
-        return;
-      }
-
-      if (success) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(
-              content: Text(
-                tr('تم تحديث الصورة بنجاح.', 'Photo mise a jour avec succes.'),
-              ),
-            ),
-          );
-        return;
-      }
-
-      final error = authProvider.errorMessage;
-      if (error != null && error.isNotEmpty) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text(error)));
-        authProvider.clearError();
-      }
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: Text(
-              tr('تعذر فتح معرض الصور.', 'Impossible d\'ouvrir la galerie.'),
-            ),
-          ),
-        );
-    }
-  }
-
-  Future<void> _showChangePasswordDialog(AuthProvider authProvider) async {
-    final tr = context.read<AppSettingsProvider>().tr;
-    final currentPasswordController = TextEditingController();
-    final newPasswordController = TextEditingController();
-    final confirmPasswordController = TextEditingController();
-    var isSubmitting = false;
-
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (_, setDialogState) {
-            return AlertDialog(
-              title: Text(tr('تعديل كلمة المرور', 'Modifier le mot de passe')),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: currentPasswordController,
-                    obscureText: true,
-                    decoration: InputDecoration(
-                      labelText: tr(
-                        'كلمة المرور الحالية',
-                        'Mot de passe actuel',
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: newPasswordController,
-                    obscureText: true,
-                    decoration: InputDecoration(
-                      labelText: tr(
-                        'كلمة المرور الجديدة',
-                        'Nouveau mot de passe',
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: confirmPasswordController,
-                    obscureText: true,
-                    decoration: InputDecoration(
-                      labelText: tr(
-                        'تأكيد كلمة المرور',
-                        'Confirmer le mot de passe',
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isSubmitting
-                      ? null
-                      : () => Navigator.of(dialogContext).pop(),
-                  child: Text(tr('إلغاء', 'Annuler')),
-                ),
-                FilledButton(
-                  onPressed: isSubmitting
-                      ? null
-                      : () async {
-                          final currentPassword = currentPasswordController.text
-                              .trim();
-                          final newPassword = newPasswordController.text.trim();
-                          final confirmPassword = confirmPasswordController.text
-                              .trim();
-
-                          if (currentPassword.isEmpty ||
-                              newPassword.isEmpty ||
-                              confirmPassword.isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  tr(
-                                    'أدخل جميع الحقول المطلوبة.',
-                                    'Remplissez tous les champs requis.',
-                                  ),
-                                ),
-                              ),
-                            );
-                            return;
-                          }
-                          if (newPassword.length < 8) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  tr(
-                                    'كلمة المرور الجديدة يجب أن تكون 8 أحرف على الأقل.',
-                                    'Le nouveau mot de passe doit contenir au moins 8 caracteres.',
-                                  ),
-                                ),
-                              ),
-                            );
-                            return;
-                          }
-                          if (newPassword != confirmPassword) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  tr(
-                                    'تأكيد كلمة المرور غير مطابق.',
-                                    'La confirmation ne correspond pas.',
-                                  ),
-                                ),
-                              ),
-                            );
-                            return;
-                          }
-
-                          setDialogState(() => isSubmitting = true);
-                          final success = await authProvider.changePassword(
-                            currentPassword: currentPassword,
-                            newPassword: newPassword,
-                          );
-                          if (!mounted || !dialogContext.mounted) {
-                            return;
-                          }
-                          setDialogState(() => isSubmitting = false);
-
-                          if (success) {
-                            Navigator.of(dialogContext).pop();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  tr(
-                                    'تم تغيير كلمة المرور بنجاح.',
-                                    'Mot de passe modifie avec succes.',
-                                  ),
-                                ),
-                              ),
-                            );
-                            return;
-                          }
-
-                          final error = authProvider.errorMessage;
-                          if (error != null && error.isNotEmpty) {
-                            ScaffoldMessenger.of(
-                              context,
-                            ).showSnackBar(SnackBar(content: Text(error)));
-                            authProvider.clearError();
-                          }
-                        },
-                  child: isSubmitting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Text(tr('حفظ', 'Enregistrer')),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _openSettings() async {
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const AppSettingsScreen()));
-  }
-
   @override
   Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
@@ -400,11 +177,7 @@ class _PatientHomeScreenState extends State<PatientHomeScreen>
               _AnimatedBackdrop(controller: _bgController),
               SafeArea(
                 child: _currentIndex == 3
-                    ? _buildAccountSection(
-                        authProvider,
-                        appSettings,
-                        currentUser,
-                      )
+                    ? const AppSettingsScreen()
                     : _currentIndex == 1
                     ? ChatListScreen(currentUser: currentUser)
                     : _currentIndex == 2
@@ -433,9 +206,9 @@ class _PatientHomeScreenState extends State<PatientHomeScreen>
                 label: tr('مدونات صحية', 'Blogs sante'),
               ),
               NavigationDestination(
-                icon: const Icon(Icons.person_outline_rounded),
-                selectedIcon: const Icon(Icons.person_rounded),
-                label: tr('حسابي', 'Mon compte'),
+                icon: const Icon(Icons.settings_outlined),
+                selectedIcon: const Icon(Icons.settings_rounded),
+                label: tr('الإعدادات', 'Parametres'),
               ),
             ],
           ),
@@ -453,11 +226,14 @@ class _PatientHomeScreenState extends State<PatientHomeScreen>
     return StreamBuilder<List<AppUser>>(
       stream: context.read<ChatProvider>().doctorsStream(),
       builder: (context, snapshot) {
-        final doctors = (snapshot.data ?? []).where((doctor) {
+        final allDoctors = (snapshot.data ?? []).where((doctor) {
           if (doctor.id == currentUser.id) {
             return false;
           }
+          return true;
+        }).toList();
 
+        final doctors = allDoctors.where((doctor) {
           final doctorSpecialtyAr = normalizeMedicalSpecialty(doctor.specialty);
           final doctorSpecialtyLocalized = localizeMedicalSpecialty(
             doctor.specialty,
@@ -477,85 +253,79 @@ class _PatientHomeScreenState extends State<PatientHomeScreen>
               doctorSpecialtyAr.toLowerCase().contains(_searchQuery) ||
               doctorSpecialtyLocalized.toLowerCase().contains(_searchQuery);
         }).toList();
+        MedicalSpecialty? selectedSpecialty;
+        for (final specialty in kMedicalSpecialties) {
+          if (specialty.nameAr == _selectedSpecialtyAr) {
+            selectedSpecialty = specialty;
+            break;
+          }
+        }
+        final selectedSpecialtyLabel = selectedSpecialty == null
+            ? tr('كل التخصصات', 'Toutes les specialites')
+            : (isArabic ? selectedSpecialty.nameAr : selectedSpecialty.nameFr);
+        final resultSummary = tr(
+          'عرض ${doctors.length} طبيبًا من أصل ${allDoctors.length}',
+          'Affichage de ${doctors.length} medecins sur ${allDoctors.length}',
+        );
 
         return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
           children: [
-            _glassCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              tr(
-                                'أهلاً بك، ${currentUser.name}',
-                                'Bienvenue, ${currentUser.name}',
-                              ),
-                              style: GoogleFonts.tajawal(
-                                fontSize: 23,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              tr(
-                                'اختر طبيباً وابدأ استشارتك فوراً',
-                                'Choisissez un medecin et commencez votre consultation',
-                              ),
-                              style: GoogleFonts.tajawal(
-                                color: const Color(0xFF5A6B81),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      _ProfileAvatar(
-                        photoUrl: currentUser.photoUrl,
-                        radius: 26,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: _searchController,
-                    onChanged: (value) => setState(
-                      () => _searchQuery = value.trim().toLowerCase(),
-                    ),
-                    decoration: InputDecoration(
-                      hintText: tr(
-                        'ابحث عن طبيب أو تخصص...',
-                        'Chercher un medecin ou une specialite...',
-                      ),
-                      prefixIcon: const Icon(Icons.search_rounded),
-                      filled: true,
-                      fillColor: isDark
-                          ? const Color(0xFF141D28)
-                          : Colors.white,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                ],
+            _PatientHeroCard(
+              patientName: currentUser.name,
+              subtitle: tr(
+                'اشرح حالتك وابدأ الاستشارة بضغطة واحدة.',
+                'Decrivez votre besoin et lancez la consultation en un geste.',
               ),
+              photoUrl: currentUser.photoUrl,
+              infoOne: tr(
+                '${allDoctors.length} أطباء متاحون',
+                '${allDoctors.length} medecins disponibles',
+              ),
+              infoTwo: selectedSpecialtyLabel,
             ),
-            const SizedBox(height: 14),
-            Text(
-              tr('التخصصات الطبية', 'Specialites medicales'),
-              style: GoogleFonts.tajawal(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
+            const SizedBox(height: 12),
+            _glassCard(
+              child: TextField(
+                controller: _searchController,
+                onChanged: (value) =>
+                    setState(() => _searchQuery = value.trim().toLowerCase()),
+                decoration: InputDecoration(
+                  hintText: tr(
+                    'ابحث عن طبيب أو رقم هاتف أو تخصص...',
+                    'Chercher un medecin, un numero, ou une specialite...',
+                  ),
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon: _searchQuery.isEmpty
+                      ? null
+                      : IconButton(
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                  filled: true,
+                  fillColor: isDark ? const Color(0xFF141D28) : Colors.white,
+                ),
               ),
             ),
             const SizedBox(height: 10),
+            _HomeSectionHeader(
+              title: tr('التخصصات', 'Specialites'),
+              subtitle: selectedSpecialty == null
+                  ? tr(
+                      'اختر تخصصًا لتصفية الأطباء بسرعة.',
+                      'Choisissez une specialite pour filtrer rapidement.',
+                    )
+                  : tr(
+                      'التصفية الحالية: $selectedSpecialtyLabel',
+                      'Filtre actuel: $selectedSpecialtyLabel',
+                    ),
+            ),
+            const SizedBox(height: 10),
             SizedBox(
-              height: 98,
+              height: 104,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: kMedicalSpecialties.length + 1,
@@ -575,36 +345,67 @@ class _PatientHomeScreenState extends State<PatientHomeScreen>
                   final selected = selectedValue == _selectedSpecialtyAr;
 
                   return InkWell(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(18),
                     onTap: () =>
                         setState(() => _selectedSpecialtyAr = selectedValue),
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 220),
-                      width: 120,
-                      padding: const EdgeInsets.all(12),
+                      width: 132,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 11,
+                      ),
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(18),
+                        gradient: selected
+                            ? const LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [Color(0xFF0D9488), Color(0xFF0284C7)],
+                              )
+                            : null,
                         color: selected
-                            ? SihhaPalette.primary
+                            ? null
                             : (isDark ? const Color(0xFF141E2A) : Colors.white),
+                        border: Border.all(
+                          color: selected
+                              ? Colors.white.withValues(alpha: 0.16)
+                              : Theme.of(
+                                  context,
+                                ).colorScheme.outline.withValues(alpha: 0.16),
+                        ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.05),
-                            blurRadius: 14,
-                            offset: const Offset(0, 8),
+                            color: Colors.black.withValues(
+                              alpha: selected ? 0.12 : 0.05,
+                            ),
+                            blurRadius: selected ? 18 : 12,
+                            offset: const Offset(0, 7),
                           ),
                         ],
                       ),
                       child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          Icon(
-                            icon,
-                            color: selected
-                                ? Colors.white
-                                : SihhaPalette.primary,
+                          Container(
+                            width: 34,
+                            height: 34,
+                            decoration: BoxDecoration(
+                              color: selected
+                                  ? Colors.white.withValues(alpha: 0.18)
+                                  : SihhaPalette.primary.withValues(
+                                      alpha: 0.12,
+                                    ),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(
+                              icon,
+                              color: selected
+                                  ? Colors.white
+                                  : SihhaPalette.primary,
+                              size: 18,
+                            ),
                           ),
-                          const SizedBox(height: 7),
                           Text(
                             displayLabel,
                             textAlign: TextAlign.center,
@@ -624,13 +425,10 @@ class _PatientHomeScreenState extends State<PatientHomeScreen>
                 },
               ),
             ),
-            const SizedBox(height: 14),
-            Text(
-              tr('الأطباء المتاحون', 'Medecins disponibles'),
-              style: GoogleFonts.tajawal(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-              ),
+            const SizedBox(height: 12),
+            _HomeSectionHeader(
+              title: tr('أطباء مقترحون', 'Medecins recommandes'),
+              subtitle: resultSummary,
             ),
             const SizedBox(height: 10),
             if (snapshot.connectionState == ConnectionState.waiting)
@@ -656,7 +454,7 @@ class _PatientHomeScreenState extends State<PatientHomeScreen>
                 child: Center(
                   child: Text(
                     tr(
-                      'لا يوجد أطباء مطابقو للبحث.',
+                      'لا يوجد أطباء يطابقون البحث.',
                       'Aucun medecin ne correspond a la recherche.',
                     ),
                   ),
@@ -672,62 +470,19 @@ class _PatientHomeScreenState extends State<PatientHomeScreen>
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: _glassCard(
-                    child: Row(
-                      children: [
-                        _ProfileAvatar(photoUrl: doctor.photoUrl, radius: 28),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                doctor.name,
-                                style: GoogleFonts.tajawal(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              Text(
-                                doctorSpecialty,
-                                style: GoogleFonts.tajawal(
-                                  color: const Color(0xFF647489),
-                                ),
-                              ),
-                              Text(
-                                doctor.phoneNumber,
-                                style: GoogleFonts.tajawal(
-                                  color: SihhaPalette.primary,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        FilledButton.icon(
-                          onPressed: isOpening
-                              ? null
-                              : () => _startConsultation(
-                                  patient: currentUser,
-                                  doctor: doctor,
-                                ),
-                          icon: isOpening
-                              ? const SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.chat_bubble_rounded, size: 18),
-                          label: Text(
-                            isOpening
-                                ? tr('جاري الفتح', 'Ouverture')
-                                : tr('استشارة', 'Consulter'),
-                          ),
-                        ),
-                      ],
+                  child: _DoctorListCard(
+                    name: doctor.name,
+                    specialty: doctorSpecialty,
+                    phoneNumber: doctor.phoneNumber,
+                    photoUrl: doctor.photoUrl,
+                    isOpening: isOpening,
+                    onConsult: () => _startConsultation(
+                      patient: currentUser,
+                      doctor: doctor,
                     ),
+                    consultLabel: tr('استشر الآن', 'Consulter'),
+                    openingLabel: tr('جاري الفتح...', 'Ouverture...'),
+                    availableLabel: tr('متاح', 'Disponible'),
                   ),
                 );
               }),
@@ -736,84 +491,292 @@ class _PatientHomeScreenState extends State<PatientHomeScreen>
       },
     );
   }
+}
 
-  Widget _buildAccountSection(
-    AuthProvider authProvider,
-    AppSettingsProvider appSettings,
-    AppUser currentUser,
-  ) {
-    final tr = appSettings.tr;
+class _PatientHeroCard extends StatelessWidget {
+  const _PatientHeroCard({
+    required this.patientName,
+    required this.subtitle,
+    required this.photoUrl,
+    required this.infoOne,
+    required this.infoTwo,
+  });
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      children: [
-        _glassCard(
-          child: Column(
+  final String patientName;
+  final String subtitle;
+  final String photoUrl;
+  final String infoOne;
+  final String infoTwo;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: isDark
+              ? const [Color(0xFF112739), Color(0xFF0E1726)]
+              : const [Color(0xFF0F766E), Color(0xFF0284C7)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.26 : 0.12),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              _ProfileAvatar(photoUrl: currentUser.photoUrl, radius: 44),
-              const SizedBox(height: 10),
-              Text(
-                currentUser.name,
-                style: GoogleFonts.tajawal(
-                  fontSize: 19,
-                  fontWeight: FontWeight.w800,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      patientName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.tajawal(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: GoogleFonts.tajawal(
+                        color: Colors.white.withValues(alpha: 0.93),
+                        fontWeight: FontWeight.w600,
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              Text(
-                currentUser.phoneNumber,
-                style: GoogleFonts.tajawal(color: const Color(0xFF66778D)),
+              const SizedBox(width: 10),
+              _ProfileAvatar(photoUrl: photoUrl, radius: 28),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _HeroInfoPill(icon: Icons.people, label: infoOne),
               ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: authProvider.isLoading
-                    ? null
-                    : () => _pickProfilePhotoFromGallery(authProvider),
-                icon: const Icon(Icons.photo_library_rounded),
-                label: Text(
-                  tr(
-                    'تغيير الصورة من المعرض',
-                    'Changer la photo depuis la galerie',
+              const SizedBox(width: 8),
+              Expanded(
+                child: _HeroInfoPill(
+                  icon: Icons.local_hospital_outlined,
+                  label: infoTwo,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeroInfoPill extends StatelessWidget {
+  const _HeroInfoPill({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.white, size: 16),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.tajawal(
+                color: Colors.white,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HomeSectionHeader extends StatelessWidget {
+  const _HomeSectionHeader({required this.title, required this.subtitle});
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: GoogleFonts.tajawal(fontSize: 19, fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          subtitle,
+          style: GoogleFonts.tajawal(
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.66),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DoctorListCard extends StatelessWidget {
+  const _DoctorListCard({
+    required this.name,
+    required this.specialty,
+    required this.phoneNumber,
+    required this.photoUrl,
+    required this.isOpening,
+    required this.onConsult,
+    required this.consultLabel,
+    required this.openingLabel,
+    required this.availableLabel,
+  });
+
+  final String name;
+  final String specialty;
+  final String phoneNumber;
+  final String photoUrl;
+  final bool isOpening;
+  final VoidCallback onConsult;
+  final String consultLabel;
+  final String openingLabel;
+  final String availableLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return _glassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _ProfileAvatar(photoUrl: photoUrl, radius: 28),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: GoogleFonts.tajawal(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      specialty,
+                      style: GoogleFonts.tajawal(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withValues(alpha: 0.68),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: SihhaPalette.accent.withValues(
+                    alpha: isDark ? 0.20 : 0.14,
+                  ),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  availableLabel,
+                  style: GoogleFonts.tajawal(
+                    color: isDark ? Colors.white : SihhaPalette.accent,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
                   ),
                 ),
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 12),
-        _glassCard(
-          child: Column(
-            children: [
-              ListTile(
-                leading: const Icon(Icons.lock_reset_rounded),
-                title: Text(
-                  tr('تعديل كلمة المرور', 'Modifier le mot de passe'),
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF131D2A) : const Color(0xFFF2F8FF),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.phone_rounded,
+                  size: 16,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.62),
                 ),
-                trailing: const Icon(Icons.chevron_left_rounded),
-                onTap: authProvider.isLoading
-                    ? null
-                    : () => _showChangePasswordDialog(authProvider),
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.settings_rounded),
-                title: Text(tr('الإعدادات', 'Parametres')),
-                trailing: const Icon(Icons.chevron_left_rounded),
-                onTap: _openSettings,
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: Icon(Icons.logout_rounded, color: Colors.red.shade700),
-                title: Text(
-                  tr('تسجيل الخروج', 'Se deconnecter'),
-                  style: TextStyle(color: Colors.red.shade700),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    phoneNumber,
+                    style: GoogleFonts.tajawal(
+                      color: SihhaPalette.primary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                 ),
-                trailing: const Icon(Icons.chevron_left_rounded),
-                onTap: authProvider.isLoading ? null : authProvider.signOut,
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ],
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: isOpening ? null : onConsult,
+              icon: isOpening
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.chat_bubble_rounded, size: 18),
+              label: Text(isOpening ? openingLabel : consultLabel),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -887,23 +850,157 @@ class _ProfileAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (photoUrl.trim().isNotEmpty) {
+    final fallback = Icon(
+      Icons.person_rounded,
+      color: SihhaPalette.primary,
+      size: radius * 0.9,
+    );
+    final candidates = _buildPhotoCandidates(photoUrl);
+    final url = candidates.isEmpty ? '' : candidates.first;
+    if (url.isNotEmpty) {
       return CircleAvatar(
         radius: radius,
         backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-        backgroundImage: NetworkImage(photoUrl),
+        child: ClipOval(
+          child: Image.network(
+            url,
+            width: radius * 2,
+            height: radius * 2,
+            fit: BoxFit.cover,
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) {
+                return child;
+              }
+              return fallback;
+            },
+            errorBuilder: (_, _, _) => fallback,
+          ),
+        ),
       );
     }
     return CircleAvatar(
       radius: radius,
       backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Icon(
-        Icons.person_rounded,
-        color: SihhaPalette.primary,
-        size: radius * 0.9,
-      ),
+      child: fallback,
     );
   }
+}
+
+List<String> _buildPhotoCandidates(String rawUrl) {
+  final raw = rawUrl.trim();
+  if (raw.isEmpty) return const <String>[];
+
+  final apiBase = const String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'https://sihha.space/api',
+  ).trim();
+  final apiUri = Uri.tryParse(apiBase);
+  final uri = Uri.tryParse(raw);
+  final candidates = <String>[];
+
+  void addCandidate(String? value) {
+    final text = value?.trim() ?? '';
+    if (text.isEmpty) return;
+    if (!candidates.contains(text)) {
+      candidates.add(text);
+    }
+  }
+
+  bool isUploadsPath(String path) {
+    return path.startsWith('/uploads/') ||
+        path.contains('/uploads/') ||
+        path.startsWith('uploads/') ||
+        path.contains('uploads/') ||
+        path.startsWith('/api/uploads/') ||
+        path.contains('/api/uploads/');
+  }
+
+  String normalizeUploadPath(String path) {
+    if (path.startsWith('/api/uploads/')) {
+      return path.replaceFirst('/api/uploads/', '/uploads/');
+    }
+    if (path.contains('/api/uploads/')) {
+      return path.replaceFirst('/api/uploads/', '/uploads/');
+    }
+    final uploadsIndex = path.indexOf('/uploads/');
+    if (uploadsIndex >= 0) {
+      return path.substring(uploadsIndex);
+    }
+    return path;
+  }
+
+  if (uri == null) {
+    addCandidate(raw);
+    return candidates;
+  }
+
+  final normalizedPath = normalizeUploadPath(uri.path);
+  final normalizedPathWithSlash = normalizedPath.startsWith('/')
+      ? normalizedPath
+      : '/$normalizedPath';
+  final uploadsPath = isUploadsPath(normalizedPathWithSlash);
+  final preferredScheme = (apiUri != null && apiUri.scheme.isNotEmpty)
+      ? apiUri.scheme
+      : (uri.hasScheme ? uri.scheme : 'https');
+
+  if (uploadsPath && apiUri != null && apiUri.host.isNotEmpty) {
+    addCandidate(
+      apiUri
+          .replace(
+            path: normalizedPathWithSlash,
+            query: uri.query.isEmpty ? null : uri.query,
+            fragment: uri.fragment.isEmpty ? null : uri.fragment,
+          )
+          .toString(),
+    );
+  }
+
+  if (uri.hasScheme) {
+    addCandidate(
+      uri.replace(port: null, path: normalizedPathWithSlash).toString(),
+    );
+    addCandidate(uri.replace(path: normalizedPathWithSlash).toString());
+  } else if (apiUri != null && apiUri.host.isNotEmpty) {
+    addCandidate(
+      apiUri
+          .replace(
+            path: normalizedPathWithSlash,
+            query: uri.query.isEmpty ? null : uri.query,
+            fragment: uri.fragment.isEmpty ? null : uri.fragment,
+          )
+          .toString(),
+    );
+  }
+
+  if (apiUri != null && apiUri.host.isNotEmpty) {
+    addCandidate(
+      uri
+          .replace(
+            scheme: preferredScheme,
+            host: apiUri.host,
+            port: apiUri.hasPort ? apiUri.port : null,
+            path: normalizedPathWithSlash,
+            query: uri.query.isEmpty ? null : uri.query,
+            fragment: uri.fragment.isEmpty ? null : uri.fragment,
+          )
+          .toString(),
+    );
+    addCandidate(
+      uri
+          .replace(
+            scheme: preferredScheme,
+            host: apiUri.host,
+            port: null,
+            path: normalizedPathWithSlash,
+            query: uri.query.isEmpty ? null : uri.query,
+            fragment: uri.fragment.isEmpty ? null : uri.fragment,
+          )
+          .toString(),
+    );
+  }
+
+  addCandidate(raw);
+  return candidates;
 }
 
 Widget _glassCard({required Widget child}) {

@@ -231,9 +231,46 @@ async function ensureSchema(db) {
       category TEXT NOT NULL,
       author_id TEXT NOT NULL,
       author_name TEXT NOT NULL,
+      profile_image_url TEXT NOT NULL DEFAULT '',
+      expressive_image_url_1 TEXT NOT NULL DEFAULT '',
+      expressive_image_url_2 TEXT NOT NULL DEFAULT '',
+      expressive_image_url_3 TEXT NOT NULL DEFAULT '',
       published_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY(author_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS blog_reactions (
+      blog_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      reaction_type TEXT NOT NULL CHECK(reaction_type IN ('like', 'support', 'thanks')),
+      reacted_at TEXT NOT NULL,
+      PRIMARY KEY(blog_id, user_id),
+      FOREIGN KEY(blog_id) REFERENCES blogs(id) ON DELETE CASCADE,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS blog_comments (
+      id TEXT PRIMARY KEY,
+      blog_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      user_name TEXT NOT NULL,
+      user_photo_url TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(blog_id) REFERENCES blogs(id) ON DELETE CASCADE,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS blog_shares (
+      id TEXT PRIMARY KEY,
+      blog_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      platform TEXT NOT NULL CHECK(platform IN ('facebook', 'x', 'whatsapp', 'telegram')),
+      shared_at TEXT NOT NULL,
+      FOREIGN KEY(blog_id) REFERENCES blogs(id) ON DELETE CASCADE,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS app_presence (
@@ -259,10 +296,14 @@ async function ensureSchema(db) {
       subject_name TEXT NOT NULL,
       age_years INTEGER NOT NULL,
       gender TEXT NOT NULL CHECK(gender IN ('male', 'female')),
+      pregnancy_status TEXT NOT NULL CHECK(
+        pregnancy_status IN ('not_applicable', 'pregnant', 'not_pregnant', 'not_sure')
+      ) DEFAULT 'not_applicable',
       weight_kg REAL NOT NULL,
       state_code TEXT NOT NULL,
       spoken_language TEXT NOT NULL CHECK(spoken_language IN ('ar', 'fr', 'bilingual')),
       symptoms TEXT NOT NULL,
+      symptoms_voice_url TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL CHECK(status IN ('pending', 'accepted', 'rejected')) DEFAULT 'pending',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -336,6 +377,12 @@ async function ensureSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_presence_room ON room_presence(room_id, last_seen_at);
     CREATE INDEX IF NOT EXISTS idx_live_sessions_status ON live_sessions(status);
     CREATE INDEX IF NOT EXISTS idx_blogs_published ON blogs(published_at);
+    CREATE INDEX IF NOT EXISTS idx_blog_reactions_blog_reacted
+      ON blog_reactions(blog_id, reacted_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_blog_comments_blog_created
+      ON blog_comments(blog_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_blog_shares_blog_shared
+      ON blog_shares(blog_id, shared_at DESC);
     CREATE INDEX IF NOT EXISTS idx_app_presence_seen ON app_presence(last_seen_at);
     CREATE INDEX IF NOT EXISTS idx_daily_activity_date ON user_daily_activity(activity_date);
     CREATE INDEX IF NOT EXISTS idx_consult_req_target_status
@@ -357,8 +404,44 @@ async function ensureSchema(db) {
   await ensureColumn(db, "messages", "read_at", "TEXT");
   await ensureColumn(db, "users", "is_disabled", "INTEGER NOT NULL DEFAULT 0");
   await ensureColumn(db, "users", "disabled_at", "TEXT");
+  await ensureColumn(
+    db,
+    "blogs",
+    "profile_image_url",
+    "TEXT NOT NULL DEFAULT ''",
+  );
+  await ensureColumn(
+    db,
+    "blogs",
+    "expressive_image_url_1",
+    "TEXT NOT NULL DEFAULT ''",
+  );
+  await ensureColumn(
+    db,
+    "blogs",
+    "expressive_image_url_2",
+    "TEXT NOT NULL DEFAULT ''",
+  );
+  await ensureColumn(
+    db,
+    "blogs",
+    "expressive_image_url_3",
+    "TEXT NOT NULL DEFAULT ''",
+  );
   await ensureColumn(db, "consultation_requests", "transferred_by_doctor_id", "TEXT");
   await ensureColumn(db, "consultation_requests", "linked_room_id", "TEXT");
+  await ensureColumn(
+    db,
+    "consultation_requests",
+    "pregnancy_status",
+    "TEXT NOT NULL DEFAULT 'not_applicable'",
+  );
+  await ensureColumn(
+    db,
+    "consultation_requests",
+    "symptoms_voice_url",
+    "TEXT NOT NULL DEFAULT ''",
+  );
 }
 
 async function initDb() {

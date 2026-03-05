@@ -5,6 +5,7 @@ import '../models/app_user.dart';
 import '../models/chat_message.dart';
 import '../models/chat_room.dart';
 import '../models/consultation_request.dart';
+import '../models/medical_record.dart';
 import 'api_service.dart';
 
 class ChatService {
@@ -77,10 +78,12 @@ class ChatService {
     required String subjectName,
     required int ageYears,
     required RequestGender gender,
+    required RequestPregnancyStatus pregnancyStatus,
     required double weightKg,
     required String stateCode,
     required SpokenLanguage spokenLanguage,
     required String symptoms,
+    required String symptomsVoiceUrl,
   }) async {
     final body = await _apiService.post(
       '/consultation-requests',
@@ -90,10 +93,12 @@ class ChatService {
         'subjectName': subjectName.trim(),
         'ageYears': ageYears,
         'gender': gender.value,
+        'pregnancyStatus': pregnancyStatus.value,
         'weightKg': weightKg,
         'stateCode': stateCode,
         'spokenLanguage': spokenLanguage.value,
         'symptoms': symptoms.trim(),
+        'symptomsVoiceUrl': symptomsVoiceUrl.trim(),
       },
     );
     final map = _readMap(body);
@@ -119,7 +124,9 @@ class ChatService {
     );
   }
 
-  Future<ConsultationRequest?> fetchConsultationRequestByRoom(String roomId) async {
+  Future<ConsultationRequest?> fetchConsultationRequestByRoom(
+    String roomId,
+  ) async {
     final body = await _apiService.get('/rooms/$roomId/consultation-request');
     final map = _readMap(body);
     final reqRaw = map['request'];
@@ -141,6 +148,32 @@ class ChatService {
     return ConsultationRequest.fromMap(_readMap(reqRaw));
   }
 
+  Future<MedicalRecord?> fetchMedicalRecordByRoom(String roomId) async {
+    final body = await _apiService.get('/rooms/$roomId/medical-record');
+    final map = _readMap(body);
+    final rawRecord = map['record'];
+    if (rawRecord == null) {
+      return null;
+    }
+    return MedicalRecord.fromMap(_readMap(rawRecord));
+  }
+
+  Future<MedicalRecord?> updateMedicalRecordByRoom({
+    required String roomId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final body = await _apiService.put(
+      '/rooms/$roomId/medical-record',
+      body: payload,
+    );
+    final map = _readMap(body);
+    final rawRecord = map['record'];
+    if (rawRecord == null) {
+      return null;
+    }
+    return MedicalRecord.fromMap(_readMap(rawRecord));
+  }
+
   Future<ChatRoom> closeRoom(String roomId) async {
     final body = await _apiService.post('/rooms/$roomId/close');
     final map = _readMap(body);
@@ -148,14 +181,22 @@ class ChatService {
     return ChatRoom.fromMap((roomMap['id'] as String?) ?? roomId, roomMap);
   }
 
-  Future<Map<String, dynamic>> acceptConsultationRequest(String requestId) async {
-    final body = await _apiService.post('/consultation-requests/$requestId/accept');
+  Future<Map<String, dynamic>> acceptConsultationRequest(
+    String requestId,
+  ) async {
+    final body = await _apiService.post(
+      '/consultation-requests/$requestId/accept',
+    );
     final map = _readMap(body);
     return map;
   }
 
-  Future<ConsultationRequest> rejectConsultationRequest(String requestId) async {
-    final body = await _apiService.post('/consultation-requests/$requestId/reject');
+  Future<ConsultationRequest> rejectConsultationRequest(
+    String requestId,
+  ) async {
+    final body = await _apiService.post(
+      '/consultation-requests/$requestId/reject',
+    );
     final map = _readMap(body);
     final requestMap = _readMap(map['request']);
     return ConsultationRequest.fromMap(requestMap);
@@ -190,11 +231,7 @@ class ChatService {
     );
   }
 
-  Future<String> uploadAudioFile({
-    required String roomId,
-    required String senderId,
-    required File file,
-  }) async {
+  Future<String> uploadAudioFile({required File file}) async {
     final body = await _apiService.postMultipart(
       path: '/uploads/audio',
       fileField: 'audio',
@@ -226,6 +263,23 @@ class ChatService {
       );
     }
     return imageUrl;
+  }
+
+  Future<String> uploadPrescriptionPdf({required File file}) async {
+    final body = await _apiService.postMultipart(
+      path: '/uploads/prescription-pdf',
+      fileField: 'pdf',
+      filePath: file.path,
+    );
+    final map = _readMap(body);
+    final pdfUrl = (map['pdfUrl'] as String?)?.trim();
+    if (pdfUrl == null || pdfUrl.isEmpty) {
+      throw const ApiException(
+        code: 'invalid-response',
+        message: 'Backend did not return a valid PDF URL.',
+      );
+    }
+    return pdfUrl;
   }
 
   Future<void> sendAudioMessage({

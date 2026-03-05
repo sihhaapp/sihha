@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import '../models/app_user.dart';
+import '../models/blog_comment.dart';
 import '../models/health_blog.dart';
 import 'api_service.dart';
 
@@ -17,10 +17,12 @@ class BlogService {
   }
 
   Future<void> publishBlog({
-    required AppUser author,
     required String title,
     required String content,
     required String category,
+    required String expressiveImageUrl1,
+    required String expressiveImageUrl2,
+    required String expressiveImageUrl3,
   }) async {
     await _apiService.post(
       '/blogs',
@@ -28,7 +30,67 @@ class BlogService {
         'title': title.trim(),
         'content': content.trim(),
         'category': category.trim(),
+        'expressiveImageUrl1': expressiveImageUrl1.trim(),
+        'expressiveImageUrl2': expressiveImageUrl2.trim(),
+        'expressiveImageUrl3': expressiveImageUrl3.trim(),
       },
+    );
+  }
+
+  Future<String> uploadBlogImage({required String filePath}) async {
+    final body = await _apiService.postMultipart(
+      path: '/uploads/image',
+      fileField: 'image',
+      filePath: filePath,
+    );
+    final map = _readMap(body);
+    final imageUrl = (map['imageUrl'] as String?)?.trim();
+    if (imageUrl == null || imageUrl.isEmpty) {
+      throw const ApiException(
+        code: 'invalid-response',
+        message: 'Backend did not return a valid image URL.',
+      );
+    }
+    return imageUrl;
+  }
+
+  Future<void> toggleReaction({
+    required String blogId,
+    required String reactionType,
+  }) async {
+    await _apiService.post(
+      '/blogs/${blogId.trim()}/reactions',
+      body: {'reactionType': reactionType.trim()},
+    );
+  }
+
+  Future<List<BlogComment>> fetchComments({required String blogId}) async {
+    final body = await _apiService.get('/blogs/${blogId.trim()}/comments');
+    final map = _readMap(body);
+    final list = _readList(map['comments']);
+    return list
+        .map((raw) => _readMap(raw))
+        .map((raw) => BlogComment.fromMap((raw['id'] as String?) ?? '', raw))
+        .toList();
+  }
+
+  Future<void> addComment({
+    required String blogId,
+    required String content,
+  }) async {
+    await _apiService.post(
+      '/blogs/${blogId.trim()}/comments',
+      body: {'content': content.trim()},
+    );
+  }
+
+  Future<void> registerShare({
+    required String blogId,
+    required String platform,
+  }) async {
+    await _apiService.post(
+      '/blogs/${blogId.trim()}/shares',
+      body: {'platform': platform.trim()},
     );
   }
 

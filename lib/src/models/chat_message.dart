@@ -1,3 +1,5 @@
+import '../utils/text_normalizer.dart';
+
 enum MessageType {
   text,
   audio,
@@ -73,12 +75,16 @@ class ChatMessage {
 
   factory ChatMessage.fromMap(String id, Map<String, dynamic> map) {
     final type = MessageType.fromValue(map['type'] as String?);
-    final rawContent = (map['content'] as String?) ?? '';
+    final rawContent = normalizePossiblyMojibake(
+      (map['content'] as String?) ?? '',
+    );
     return ChatMessage(
       id: id,
       roomId: (map['roomId'] as String?) ?? '',
       senderId: (map['senderId'] as String?) ?? '',
-      senderName: (map['senderName'] as String?) ?? 'User',
+      senderName: normalizePossiblyMojibake(
+        (map['senderName'] as String?) ?? 'User',
+      ),
       type: type,
       content: _normalizeMessageContent(type: type, content: rawContent),
       durationSeconds: (map['durationSeconds'] as num?)?.toInt() ?? 0,
@@ -144,25 +150,103 @@ String _normalizeMediaUrl(String value) {
   }
 
   final host = uri.host.toLowerCase();
-  final isLoopbackHost =
-      host == 'localhost' || host == '127.0.0.1' || host == '10.0.2.2';
-  if (!isLoopbackHost) {
-    return raw;
-  }
-
   final apiBase = const String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://10.0.2.2:3000/api',
+    defaultValue: 'https://sihha.space/api',
   ).trim();
   final apiUri = Uri.tryParse(apiBase);
   if (apiUri == null || apiUri.host.isEmpty) {
     return raw;
   }
 
-  final normalized = uri.replace(
-    scheme: apiUri.scheme.isEmpty ? uri.scheme : apiUri.scheme,
-    host: apiUri.host,
-    port: apiUri.hasPort ? apiUri.port : uri.port,
-  );
+  final normalizedPath = uri.path.startsWith('/') ? uri.path : '/${uri.path}';
+  final isUploadsPath = normalizedPath.startsWith('/uploads/');
+  final shouldRewriteHost = _isInternalOrLocalHost(host);
+  final shouldRewriteScheme =
+      host == apiUri.host.toLowerCase() &&
+      apiUri.scheme.isNotEmpty &&
+      uri.scheme != apiUri.scheme;
+  final shouldRewritePort =
+      host == apiUri.host.toLowerCase() &&
+      ((uri.hasPort && !apiUri.hasPort) ||
+          (!uri.hasPort && apiUri.hasPort) ||
+          (uri.hasPort && apiUri.hasPort && uri.port != apiUri.port));
+
+  final shouldRewriteUploadsOrigin =
+      isUploadsPath && host != apiUri.host.toLowerCase();
+
+  if (!shouldRewriteHost &&
+      !shouldRewriteScheme &&
+      !shouldRewritePort &&
+      !shouldRewriteUploadsOrigin) {
+    return raw;
+  }
+
+  final normalizedScheme = apiUri.scheme.isEmpty ? uri.scheme : apiUri.scheme;
+  final normalized = apiUri.hasPort
+      ? Uri(
+          scheme: normalizedScheme,
+          host: apiUri.host,
+          port: apiUri.port,
+          path: normalizedPath,
+          query: uri.hasQuery ? uri.query : null,
+          fragment: uri.hasFragment ? uri.fragment : null,
+        )
+      : Uri(
+          scheme: normalizedScheme,
+          host: apiUri.host,
+          path: normalizedPath,
+          query: uri.hasQuery ? uri.query : null,
+          fragment: uri.hasFragment ? uri.fragment : null,
+        );
   return normalized.toString();
+}
+
+bool _isInternalOrLocalHost(String host) {
+  final normalized = host.trim().toLowerCase();
+  if (normalized.isEmpty) {
+    return false;
+  }
+  if (normalized == 'localhost' ||
+      normalized == '127.0.0.1' ||
+      normalized == '10.0.2.2' ||
+      normalized == '::1') {
+    return true;
+  }
+  if (!normalized.contains('.') && !normalized.contains(':')) {
+    return true;
+  }
+
+  final match = RegExp(
+    r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$',
+  ).firstMatch(normalized);
+  if (match == null) {
+    return false;
+  }
+
+  final octets = <int>[
+    int.tryParse(match.group(1) ?? '') ?? -1,
+    int.tryParse(match.group(2) ?? '') ?? -1,
+    int.tryParse(match.group(3) ?? '') ?? -1,
+    int.tryParse(match.group(4) ?? '') ?? -1,
+  ];
+  if (octets.any((value) => value < 0 || value > 255)) {
+    return false;
+  }
+
+  final first = octets[0];
+  final second = octets[1];
+  if (first == 10 || first == 127) {
+    return true;
+  }
+  if (first == 192 && second == 168) {
+    return true;
+  }
+  if (first == 172 && second >= 16 && second <= 31) {
+    return true;
+  }
+  if (first == 169 && second == 254) {
+    return true;
+  }
+  return false;
 }

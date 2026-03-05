@@ -809,24 +809,24 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(tr('Ø­Ø°Ù Ø§Ù„Ø­Ø³Ø§Ø¨', 'Supprimer le compte')),
+        title: Text(tr('حذف الحساب', 'Supprimer le compte')),
         content: Text(
           tr(
-            'Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† Ø­Ø°Ù Ø­Ø³Ø§Ø¨ ${user.name}ØŸ',
+            'هل أنت متأكد من حذف حساب ${user.name}؟',
             'Voulez-vous vraiment supprimer le compte de ${user.name} ?',
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: Text(tr('Ø¥Ù„ØºØ§Ø¡', 'Annuler')),
+            child: Text(tr('إلغاء', 'Annuler')),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
               backgroundColor: SihhaPalette.danger,
             ),
             onPressed: () => Navigator.of(context).pop(true),
-            child: Text(tr('Ø­Ø°Ù', 'Supprimer')),
+            child: Text(tr('حذف', 'Supprimer')),
           ),
         ],
       ),
@@ -840,7 +840,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            tr('ØªÙ… Ø­Ø°Ù Ø§Ù„Ø­Ø³Ø§Ø¨.', 'Compte supprime.'),
+            tr('تم حذف الحساب.', 'Compte supprime.'),
           ),
         ),
       );

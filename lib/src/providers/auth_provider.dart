@@ -1,6 +1,7 @@
 ﻿import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
 
 import '../models/app_user.dart';
 import '../services/api_service.dart';
@@ -86,18 +87,27 @@ class AuthProvider extends ChangeNotifier {
 
   Future<bool> updateProfilePhoto(File imageFile) async {
     _errorMessage = null;
-    _isLoading = true;
     notifyListeners();
 
     try {
-      await _authService.updateProfilePhotoFromFile(imageFile);
-      await _refreshCurrentUser();
-      _isLoading = false;
+      final previousPhotoUrl = _currentUser?.photoUrl.trim() ?? '';
+      _currentUser = await _authService.updateProfilePhotoFromFile(imageFile);
+      final latestPhotoUrl = _currentUser?.photoUrl.trim() ?? '';
+      if (kDebugMode) {
+        debugPrint(
+          'AuthProvider.updateProfilePhoto old=$previousPhotoUrl new=$latestPhotoUrl',
+        );
+      }
+      if (latestPhotoUrl.isNotEmpty) {
+        await NetworkImage(latestPhotoUrl).evict();
+      }
+      if (previousPhotoUrl.isNotEmpty && previousPhotoUrl != latestPhotoUrl) {
+        await NetworkImage(previousPhotoUrl).evict();
+      }
       notifyListeners();
       return true;
     } catch (error) {
       _errorMessage = _mapAuthError(error);
-      _isLoading = false;
       notifyListeners();
       return false;
     }
@@ -110,7 +120,6 @@ class AuthProvider extends ChangeNotifier {
     required int studyYears,
   }) async {
     _errorMessage = null;
-    _isLoading = true;
     notifyListeners();
 
     try {
@@ -121,12 +130,10 @@ class AuthProvider extends ChangeNotifier {
         studyYears: studyYears,
       );
       await _refreshCurrentUser();
-      _isLoading = false;
       notifyListeners();
       return true;
     } catch (error) {
       _errorMessage = _mapAuthError(error);
-      _isLoading = false;
       notifyListeners();
       return false;
     }
@@ -137,7 +144,6 @@ class AuthProvider extends ChangeNotifier {
     required String newPassword,
   }) async {
     _errorMessage = null;
-    _isLoading = true;
     notifyListeners();
 
     try {
@@ -145,12 +151,10 @@ class AuthProvider extends ChangeNotifier {
         currentPassword: currentPassword,
         newPassword: newPassword,
       );
-      _isLoading = false;
       notifyListeners();
       return true;
     } catch (error) {
       _errorMessage = _mapAuthError(error);
-      _isLoading = false;
       notifyListeners();
       return false;
     }

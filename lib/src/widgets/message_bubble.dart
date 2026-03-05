@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -14,6 +15,8 @@ class MessageBubble extends StatelessWidget {
     required this.isMine,
     this.isPending = false,
     this.isPlaying = false,
+    this.playbackProgress = 0,
+    this.playbackPosition = Duration.zero,
     this.onAudioTap,
   });
 
@@ -21,6 +24,8 @@ class MessageBubble extends StatelessWidget {
   final bool isMine;
   final bool isPending;
   final bool isPlaying;
+  final double playbackProgress;
+  final Duration playbackPosition;
   final VoidCallback? onAudioTap;
 
   @override
@@ -169,30 +174,14 @@ class MessageBubble extends StatelessWidget {
                   ),
                 ),
               if (message.type == MessageType.audio)
-                InkWell(
+                _AudioMessageTile(
+                  isMine: isMine,
+                  isPlaying: isPlaying,
+                  progress: playbackProgress,
+                  playbackPosition: playbackPosition,
+                  durationSeconds: message.durationSeconds,
                   onTap: onAudioTap,
-                  borderRadius: BorderRadius.circular(10),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        isPlaying
-                            ? Icons.pause_circle_filled_rounded
-                            : Icons.play_circle_fill_rounded,
-                        color: isMine ? Colors.white : SihhaPalette.secondary,
-                        size: 30,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${tr('رسالة صوتية', 'Message vocal')} ${_formatDuration(message.durationSeconds)}',
-                        style: TextStyle(
-                          fontSize: 15,
-                          color: textColor,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
+                  tr: tr,
                 ),
               if (message.type == MessageType.image)
                 ClipRRect(
@@ -301,6 +290,220 @@ class MessageBubble extends StatelessWidget {
   }
 }
 
+class _AudioMessageTile extends StatefulWidget {
+  const _AudioMessageTile({
+    required this.isMine,
+    required this.isPlaying,
+    required this.progress,
+    required this.playbackPosition,
+    required this.durationSeconds,
+    required this.onTap,
+    required this.tr,
+  });
+
+  final bool isMine;
+  final bool isPlaying;
+  final double progress;
+  final Duration playbackPosition;
+  final int durationSeconds;
+  final VoidCallback? onTap;
+  final String Function(String, String) tr;
+
+  @override
+  State<_AudioMessageTile> createState() => _AudioMessageTileState();
+}
+
+class _AudioMessageTileState extends State<_AudioMessageTile>
+    with SingleTickerProviderStateMixin {
+  static const List<double> _baseWave = <double>[
+    0.22,
+    0.54,
+    0.38,
+    0.68,
+    0.32,
+    0.58,
+    0.44,
+    0.74,
+    0.28,
+    0.60,
+    0.40,
+    0.66,
+    0.36,
+    0.56,
+    0.30,
+    0.64,
+    0.42,
+    0.70,
+    0.34,
+    0.52,
+  ];
+
+  late final AnimationController _waveController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isPlaying) {
+      _waveController.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _AudioMessageTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isPlaying == widget.isPlaying) return;
+    if (widget.isPlaying) {
+      _waveController.repeat();
+    } else {
+      _waveController.stop();
+      _waveController.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _waveController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final buttonColor = widget.isMine ? Colors.white : const Color(0xFF169C7A);
+    final buttonIconColor = widget.isMine
+        ? const Color(0xFF3357D7)
+        : Colors.white;
+    final baseTextColor = widget.isMine
+        ? Colors.white.withValues(alpha: 0.92)
+        : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.76);
+    final safeProgress = widget.progress.clamp(0, 1).toDouble();
+
+    return InkWell(
+      onTap: widget.onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: buttonColor,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.14),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Icon(
+                widget.isPlaying
+                    ? Icons.pause_rounded
+                    : Icons.play_arrow_rounded,
+                color: buttonIconColor,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AnimatedBuilder(
+                    animation: _waveController,
+                    builder: (context, child) {
+                      final timePhase =
+                          (widget.playbackPosition.inMilliseconds / 1000.0) *
+                          math.pi *
+                          3.4;
+                      final uiPhase = _waveController.value * math.pi * 2;
+                      final phase = widget.isPlaying
+                          ? (timePhase + (uiPhase * 0.2))
+                          : 0.0;
+                      return SizedBox(
+                        height: 27,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: List<Widget>.generate(_baseWave.length, (
+                            index,
+                          ) {
+                            final seed = _baseWave[index];
+                            final pulse = widget.isPlaying
+                                ? (0.45 +
+                                      0.55 *
+                                          (0.5 +
+                                              0.5 *
+                                                  math.sin(
+                                                    phase + index * 0.72,
+                                                  )))
+                                : 0.45;
+                            final level = (seed * pulse)
+                                .clamp(0.16, 0.98)
+                                .toDouble();
+                            final height = 5 + (17 * level);
+                            final passed =
+                                ((index + 1) / _baseWave.length) <=
+                                safeProgress;
+                            final waveColor = widget.isMine
+                                ? Colors.white.withValues(
+                                    alpha: passed ? 0.98 : 0.5,
+                                  )
+                                : (passed
+                                      ? const Color(0xFF169C7A)
+                                      : const Color(
+                                          0xFF7E93A7,
+                                        ).withValues(alpha: 0.48));
+                            return Container(
+                              width: 2.6,
+                              height: height,
+                              decoration: BoxDecoration(
+                                color: waveColor,
+                                borderRadius: BorderRadius.circular(100),
+                              ),
+                            );
+                          }),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Text(
+                        widget.tr('رسالة صوتية', 'Message vocal'),
+                        style: TextStyle(
+                          fontSize: 12.3,
+                          color: baseTextColor,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        MessageBubble._formatDuration(widget.durationSeconds),
+                        style: TextStyle(
+                          fontSize: 12.3,
+                          color: baseTextColor,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _LiveEventViewData {
   const _LiveEventViewData({
     required this.title,
@@ -348,7 +551,9 @@ class _LiveEventViewData {
         );
       case 'LIVE_REQUEST':
         return _LiveEventViewData(
-          title: tr('طلب مكالمة جديدة', 'Nouvelle demande d\'appel'),
+          title: tr('طلب مكالمة جديدة',
+            'Nouvelle demande d\'appel',
+          ),
           subtitle: byText,
           icon: Icons.ring_volume_rounded,
           iconColor: const Color(0xFFCC7A00),

@@ -27,7 +27,7 @@ class ApiService {
           baseUrl ??
           const String.fromEnvironment(
             'API_BASE_URL',
-            defaultValue: 'http://10.0.2.2:3000/api',
+            defaultValue: 'https://sihha.space/api',
           );
 
   static bool _loggedBaseUrl = false;
@@ -91,10 +91,7 @@ class ApiService {
   Future<dynamic> delete(String path) async {
     logResolvedBaseUrl();
     return _sendRequest(
-      () => _client.delete(
-        _uri(path),
-        headers: _authHeaders(),
-      ),
+      () => _client.delete(_uri(path), headers: _authHeaders()),
     );
   }
 

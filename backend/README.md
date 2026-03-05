@@ -65,12 +65,12 @@ npm run migrate:sqlite:pg
 
 The app reads backend URL from:
 - Dart define `API_BASE_URL`
-- Default: `http://10.0.2.2:3000/api` (Android emulator)
+- Default: `https://sihha.space/api` (Android emulator)
 
 Examples:
 
 ```bash
-flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000/api
+flutter run --dart-define=API_BASE_URL=https://sihha.space/api
 ```
 
 Real device example:
@@ -154,7 +154,7 @@ docker build -t sihha-backend .
 docker run -p 3000:3000 \
   -e JWT_SECRET=your-secret \
   -e DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5432/sihha \
-  -e PUBLIC_BASE_URL=http://localhost:3000 \
+  -e PUBLIC_BASE_URL=https://sihha.space \
   -v %cd%/uploads:/app/uploads \
   sihha-backend
 ```
@@ -165,3 +165,4 @@ docker run -p 3000:3000 \
 - Use object storage for uploads (S3/R2/Spaces) for scale.
 - Add rate limiting + structured logs.
 - Enforce HTTPS + strict CORS allow-list.
+

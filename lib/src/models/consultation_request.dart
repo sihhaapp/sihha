@@ -1,3 +1,5 @@
+import '../utils/text_normalizer.dart';
+
 enum RequestSubjectType {
   self,
   other;
@@ -50,6 +52,39 @@ enum RequestGender {
   }
 }
 
+enum RequestPregnancyStatus {
+  notApplicable,
+  pregnant,
+  notPregnant,
+  notSure;
+
+  String get value {
+    switch (this) {
+      case RequestPregnancyStatus.notApplicable:
+        return 'not_applicable';
+      case RequestPregnancyStatus.pregnant:
+        return 'pregnant';
+      case RequestPregnancyStatus.notPregnant:
+        return 'not_pregnant';
+      case RequestPregnancyStatus.notSure:
+        return 'not_sure';
+    }
+  }
+
+  static RequestPregnancyStatus fromValue(String? value) {
+    switch (value) {
+      case 'pregnant':
+        return RequestPregnancyStatus.pregnant;
+      case 'not_pregnant':
+        return RequestPregnancyStatus.notPregnant;
+      case 'not_sure':
+        return RequestPregnancyStatus.notSure;
+      default:
+        return RequestPregnancyStatus.notApplicable;
+    }
+  }
+}
+
 enum SpokenLanguage {
   ar,
   fr,
@@ -87,10 +122,12 @@ class ConsultationRequest {
     required this.subjectName,
     required this.ageYears,
     required this.gender,
+    required this.pregnancyStatus,
     required this.weightKg,
     required this.stateCode,
     required this.spokenLanguage,
     required this.symptoms,
+    this.symptomsVoiceUrl = '',
     required this.status,
     required this.createdAt,
     required this.updatedAt,
@@ -113,10 +150,12 @@ class ConsultationRequest {
   final String subjectName;
   final int ageYears;
   final RequestGender gender;
+  final RequestPregnancyStatus pregnancyStatus;
   final double weightKg;
   final String stateCode;
   final SpokenLanguage spokenLanguage;
   final String symptoms;
+  final String symptomsVoiceUrl;
   final RequestStatus status;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -136,33 +175,124 @@ class ConsultationRequest {
   bool get isRejected => status == RequestStatus.rejected;
 
   factory ConsultationRequest.fromMap(Map<String, dynamic> map) {
+    final patientMap = _asStringMap(map['patient']);
+    final doctorMap = _asStringMap(map['targetDoctor'] ?? map['doctor']);
     return ConsultationRequest(
       id: (map['id'] as String?)?.trim() ?? '',
-      patientId: (map['patientId'] as String?)?.trim() ?? '',
-      targetDoctorId: (map['targetDoctorId'] as String?)?.trim() ?? '',
-      subjectType: RequestSubjectType.fromValue(map['subjectType'] as String?),
-      subjectName: (map['subjectName'] as String?)?.trim() ?? '',
-      ageYears: _toInt(map['ageYears']),
-      gender: RequestGender.fromValue(map['gender'] as String?),
-      weightKg: _toDouble(map['weightKg']),
-      stateCode: (map['stateCode'] as String?)?.trim() ?? '',
-      spokenLanguage: SpokenLanguage.fromValue(map['spokenLanguage'] as String?),
-      symptoms: (map['symptoms'] as String?)?.trim() ?? '',
-      status: RequestStatus.fromValue(map['status'] as String?),
-      createdAt: _toDateTime(map['createdAt']),
-      updatedAt: _toDateTime(map['updatedAt']),
-      respondedAt: _toNullableDateTime(map['respondedAt']),
-      respondedByDoctorId: (map['respondedByDoctorId'] as String?)?.trim(),
-      transferredByDoctorId: (map['transferredByDoctorId'] as String?)?.trim(),
-      linkedRoomId: (map['linkedRoomId'] as String?)?.trim(),
-      patientName: (map['patientName'] as String?)?.trim() ?? '',
-      patientPhotoUrl: (map['patientPhotoUrl'] as String?)?.trim() ?? '',
-      targetDoctorName: (map['targetDoctorName'] as String?)?.trim() ?? '',
-      targetDoctorPhotoUrl: (map['targetDoctorPhotoUrl'] as String?)?.trim() ?? '',
-      respondedByDoctorName: (map['respondedByDoctorName'] as String?)?.trim(),
-      transferredByDoctorName: (map['transferredByDoctorName'] as String?)?.trim(),
+      patientId: _firstNonEmptyString([
+        map['patientId'],
+        map['patient_id'],
+        patientMap['id'],
+        patientMap['userId'],
+        patientMap['user_id'],
+      ]),
+      targetDoctorId: _firstNonEmptyString([
+        map['targetDoctorId'],
+        map['target_doctor_id'],
+        map['doctorId'],
+        map['doctor_id'],
+        doctorMap['id'],
+        doctorMap['userId'],
+        doctorMap['user_id'],
+      ]),
+      subjectType: RequestSubjectType.fromValue(
+        _firstNonEmptyString([map['subjectType'], map['subject_type']]),
+      ),
+      subjectName: _normalizeUiText(
+        _firstNonEmptyString([map['subjectName'], map['subject_name']]),
+      ),
+      ageYears: _toInt(map['ageYears'] ?? map['age_years']),
+      gender: RequestGender.fromValue(_firstNonEmptyString([map['gender']])),
+      pregnancyStatus: RequestPregnancyStatus.fromValue(
+        _firstNonEmptyString([map['pregnancyStatus'], map['pregnancy_status']]),
+      ),
+      weightKg: _toDouble(map['weightKg'] ?? map['weight_kg']),
+      stateCode: _firstNonEmptyString([map['stateCode'], map['state_code']]),
+      spokenLanguage: SpokenLanguage.fromValue(
+        _firstNonEmptyString([map['spokenLanguage'], map['spoken_language']]),
+      ),
+      symptoms: _normalizeUiText(_firstNonEmptyString([map['symptoms']])),
+      symptomsVoiceUrl: _normalizePhotoUrl(
+        _firstNonEmptyString([
+          map['symptomsVoiceUrl'],
+          map['symptoms_voice_url'],
+        ]),
+      ),
+      status: RequestStatus.fromValue(_firstNonEmptyString([map['status']])),
+      createdAt: _toDateTime(map['createdAt'] ?? map['created_at']),
+      updatedAt: _toDateTime(map['updatedAt'] ?? map['updated_at']),
+      respondedAt: _toNullableDateTime(
+        map['respondedAt'] ?? map['responded_at'],
+      ),
+      respondedByDoctorId: _toNullableTrimmedString(
+        map['respondedByDoctorId'] ?? map['responded_by_doctor_id'],
+      ),
+      transferredByDoctorId: _toNullableTrimmedString(
+        map['transferredByDoctorId'] ?? map['transferred_by_doctor_id'],
+      ),
+      linkedRoomId: _toNullableTrimmedString(
+        map['linkedRoomId'] ??
+            map['linked_room_id'] ??
+            map['roomId'] ??
+            map['room_id'],
+      ),
+      patientName: _normalizeUiText(
+        _firstNonEmptyString([
+          map['patientName'],
+          map['patient_name'],
+          patientMap['name'],
+        ]),
+      ),
+      patientPhotoUrl: _normalizePhotoUrl(
+        _firstNonEmptyString([
+          map['patientPhotoUrl'],
+          map['patient_photo_url'],
+          map['patientPhoto'],
+          map['patient_photo'],
+          patientMap['photoUrl'],
+          patientMap['photo_url'],
+        ]),
+      ),
+      targetDoctorName: _normalizeUiText(
+        _firstNonEmptyString([
+          map['targetDoctorName'],
+          map['target_doctor_name'],
+          map['doctorName'],
+          map['doctor_name'],
+          doctorMap['name'],
+        ]),
+      ),
+      targetDoctorPhotoUrl: _normalizePhotoUrl(
+        _firstNonEmptyString([
+          map['targetDoctorPhotoUrl'],
+          map['target_doctor_photo_url'],
+          map['doctorPhotoUrl'],
+          map['doctor_photo_url'],
+          doctorMap['photoUrl'],
+          doctorMap['photo_url'],
+        ]),
+      ),
+      respondedByDoctorName: _normalizeNullableUiText(
+        _toNullableTrimmedString(
+          map['respondedByDoctorName'] ?? map['responded_by_doctor_name'],
+        ),
+      ),
+      transferredByDoctorName: _normalizeNullableUiText(
+        _toNullableTrimmedString(
+          map['transferredByDoctorName'] ?? map['transferred_by_doctor_name'],
+        ),
+      ),
     );
   }
+}
+
+String _normalizeUiText(String value) => normalizePossiblyMojibake(value);
+
+String? _normalizeNullableUiText(String? value) {
+  if (value == null) {
+    return null;
+  }
+  return normalizePossiblyMojibake(value);
 }
 
 int _toInt(dynamic value) {
@@ -192,4 +322,109 @@ DateTime? _toNullableDateTime(dynamic value) {
   if (value == null) return null;
   if (value is String && value.trim().isEmpty) return null;
   return _toDateTime(value);
+}
+
+String? _toNullableTrimmedString(dynamic value) {
+  final text = value?.toString().trim() ?? '';
+  if (text.isEmpty) {
+    return null;
+  }
+  return text;
+}
+
+String _firstNonEmptyString(Iterable<dynamic> values) {
+  for (final value in values) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isNotEmpty) {
+      return text;
+    }
+  }
+  return '';
+}
+
+Map<String, dynamic> _asStringMap(dynamic value) {
+  if (value is Map<String, dynamic>) {
+    return value;
+  }
+  if (value is Map) {
+    return value.map((key, item) => MapEntry(key.toString(), item));
+  }
+  return const <String, dynamic>{};
+}
+
+String _normalizePhotoUrl(dynamic value) {
+  final raw = (value as String?)?.trim() ?? '';
+  if (raw.isEmpty) {
+    return '';
+  }
+
+  final apiBase = const String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'https://sihha.space/api',
+  ).trim();
+  final apiUri = Uri.tryParse(apiBase);
+  final uri = Uri.tryParse(raw);
+  if (uri == null) {
+    return raw;
+  }
+
+  String normalizeUploadPath(String path) {
+    if (path.startsWith('/api/uploads/')) {
+      return path.replaceFirst('/api/uploads/', '/uploads/');
+    }
+    if (path.contains('/api/uploads/')) {
+      return path.replaceFirst('/api/uploads/', '/uploads/');
+    }
+    final uploadsIndex = path.indexOf('/uploads/');
+    if (uploadsIndex >= 0) {
+      return path.substring(uploadsIndex);
+    }
+    return path;
+  }
+
+  bool isUploadsPath(String path) {
+    return path.startsWith('/uploads/') ||
+        path.contains('/uploads/') ||
+        path.startsWith('/api/uploads/') ||
+        path.contains('/api/uploads/');
+  }
+
+  if (isUploadsPath(uri.path) && apiUri != null && apiUri.host.isNotEmpty) {
+    final normalizedPath = normalizeUploadPath(uri.path);
+    if (uri.hasScheme) {
+      return uri
+          .replace(
+            scheme: apiUri.scheme.isEmpty ? uri.scheme : apiUri.scheme,
+            host: apiUri.host,
+            port: apiUri.hasPort ? apiUri.port : null,
+            path: normalizedPath,
+          )
+          .toString();
+    }
+    return apiUri
+        .replace(
+          path: normalizedPath,
+          query: uri.query.isEmpty ? null : uri.query,
+          fragment: uri.fragment.isEmpty ? null : uri.fragment,
+        )
+        .toString();
+  }
+
+  if (!uri.hasScheme) {
+    return raw;
+  }
+
+  final host = uri.host.toLowerCase();
+  final isLoopbackHost =
+      host == 'localhost' || host == '127.0.0.1' || host == '10.0.2.2';
+  if (!isLoopbackHost || apiUri == null || apiUri.host.isEmpty) {
+    return raw;
+  }
+
+  final normalized = uri.replace(
+    scheme: apiUri.scheme.isEmpty ? uri.scheme : apiUri.scheme,
+    host: apiUri.host,
+    port: apiUri.hasPort ? apiUri.port : uri.port,
+  );
+  return normalized.toString();
 }

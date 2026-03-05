@@ -42,9 +42,11 @@ dependencies:
   just_audio: ^0.10.5
   path_provider: ^2.1.5
   image_picker: ^1.2.1
+  file_picker: ^8.1.2
   flutter_ringtone_player: ^4.0.0+4
   shared_preferences: ^2.5.3
   http: ^1.2.2
+  url_launcher: ^6.3.2
   livekit_client: ^2.5.1
 
 dev_dependencies:
@@ -73,12 +75,14 @@ flutter:
   assets:
     - assets/branding/logo.png
     - assets/branding/logo_square.png
+    - assets/logo (1).png
+    - assets/logo (2).png
 
 flutter_launcher_icons:
   android: true
   ios: false
-  image_path: assets/branding/logo_square.png
-  adaptive_icon_foreground: assets/branding/logo_square.png
+  image_path: "assets/logo (1).png"
+  adaptive_icon_foreground: "assets/logo (1).png"
   adaptive_icon_background: "#FFFFFF"
   min_sdk_android: 21
 

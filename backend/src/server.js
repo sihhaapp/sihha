@@ -19,7 +19,7 @@ const { initDb } = require("./db");
 
 const PORT = Number(process.env.PORT || 3000);
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
-const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").trim();
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || "").trim().replace(/\/+$/g, "");
 const ADMIN_LOCAL_PHONE = "00000000";
 const ADMIN_DISPLAY_PHONE = `+235${ADMIN_LOCAL_PHONE}`;
 const ADMIN_DEFAULT_PASSWORD = "0412";
@@ -44,12 +44,34 @@ const CONSULTATION_SUBJECT_SELF = "self";
 const CONSULTATION_SUBJECT_OTHER = "other";
 const CONSULTATION_GENDER_MALE = "male";
 const CONSULTATION_GENDER_FEMALE = "female";
+const CONSULTATION_PREGNANCY_NOT_APPLICABLE = "not_applicable";
+const CONSULTATION_PREGNANCY_PREGNANT = "pregnant";
+const CONSULTATION_PREGNANCY_NOT_PREGNANT = "not_pregnant";
+const CONSULTATION_PREGNANCY_NOT_SURE = "not_sure";
 const CONSULTATION_LANG_AR = "ar";
 const CONSULTATION_LANG_FR = "fr";
 const CONSULTATION_LANG_BILINGUAL = "bilingual";
 const CONSULTATION_STATUS_PENDING = "pending";
 const CONSULTATION_STATUS_ACCEPTED = "accepted";
 const CONSULTATION_STATUS_REJECTED = "rejected";
+const BLOG_REACTION_LIKE = "like";
+const BLOG_REACTION_SUPPORT = "support";
+const BLOG_REACTION_THANKS = "thanks";
+const BLOG_REACTION_VALUES = new Set([
+  BLOG_REACTION_LIKE,
+  BLOG_REACTION_SUPPORT,
+  BLOG_REACTION_THANKS,
+]);
+const BLOG_SHARE_FACEBOOK = "facebook";
+const BLOG_SHARE_X = "x";
+const BLOG_SHARE_WHATSAPP = "whatsapp";
+const BLOG_SHARE_TELEGRAM = "telegram";
+const BLOG_SHARE_VALUES = new Set([
+  BLOG_SHARE_FACEBOOK,
+  BLOG_SHARE_X,
+  BLOG_SHARE_WHATSAPP,
+  BLOG_SHARE_TELEGRAM,
+]);
 const OPENAI_API_KEY = (process.env.OPENAI_API_KEY || "").trim();
 const OPENAI_TRIAGE_MODEL = (process.env.OPENAI_TRIAGE_MODEL || "gpt-4o-mini").trim() || "gpt-4o-mini";
 const TRIAGE_ENABLE_MODERATION = parseBooleanValue(
@@ -615,10 +637,12 @@ function mapConsultationRequestRow(row) {
     subjectName: row.subject_name,
     ageYears: Number(row.age_years || 0),
     gender: row.gender,
+    pregnancyStatus: row.pregnancy_status || CONSULTATION_PREGNANCY_NOT_APPLICABLE,
     weightKg: Number(row.weight_kg || 0),
     stateCode: row.state_code,
     spokenLanguage: row.spoken_language,
     symptoms: row.symptoms,
+    symptomsVoiceUrl: row.symptoms_voice_url || "",
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -690,7 +714,29 @@ function mapBlogRow(row) {
     category: row.category,
     authorId: row.author_id,
     authorName: row.author_name,
+    profileImageUrl: row.author_photo_url || row.profile_image_url || "",
+    expressiveImageUrl1: row.expressive_image_url_1 || "",
+    expressiveImageUrl2: row.expressive_image_url_2 || "",
+    expressiveImageUrl3: row.expressive_image_url_3 || "",
+    reactionsCount: Number(row.reactions_count || 0),
+    commentsCount: Number(row.comments_count || 0),
+    sharesCount: Number(row.shares_count || 0),
+    myReaction: row.my_reaction || "",
     publishedAt: row.published_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapBlogCommentRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    blogId: row.blog_id,
+    userId: row.user_id,
+    userName: row.user_name || "",
+    userPhotoUrl: row.user_photo_url || "",
+    content: row.content || "",
+    createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
@@ -748,9 +794,92 @@ function requireAdmin(req, res, next) {
   return next();
 }
 
+function pickForwardedHeaderValue(value) {
+  if (Array.isArray(value)) {
+    return String(value[0] || "")
+      .split(",")[0]
+      .trim();
+  }
+  return String(value || "")
+    .split(",")[0]
+    .trim();
+}
+
+function sanitizeProtocol(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "https" || normalized === "http") {
+    return normalized;
+  }
+  return "";
+}
+
+function sanitizeHost(value) {
+  const host = String(value || "").trim();
+  if (!host) {
+    return "";
+  }
+  if (host.includes("/") || host.includes("\\") || host.includes(" ")) {
+    return "";
+  }
+  return host;
+}
+
+function requestBaseUrl(req) {
+  if (PUBLIC_BASE_URL) {
+    return PUBLIC_BASE_URL;
+  }
+  const forwardedProto = sanitizeProtocol(
+    pickForwardedHeaderValue(req.headers["x-forwarded-proto"]),
+  );
+  const forwardedHost = sanitizeHost(
+    pickForwardedHeaderValue(req.headers["x-forwarded-host"]),
+  );
+  const fallbackProto = sanitizeProtocol(req.protocol) || "http";
+  const fallbackHost = sanitizeHost(req.get("host"));
+  const protocol = forwardedProto || fallbackProto;
+  const host = forwardedHost || fallbackHost;
+  if (!host) {
+    return `${protocol}://localhost:${PORT}`;
+  }
+  return `${protocol}://${host}`;
+}
+
 function buildFileUrl(req, relativePath) {
-  const baseUrl = PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
-  return `${baseUrl}/${relativePath.replace(/\\/g, "/")}`;
+  const baseUrl = requestBaseUrl(req);
+  const normalizedPath = relativePath.replace(/\\/g, "/").replace(/^\/+/g, "");
+  return `${baseUrl}/${normalizedPath}`;
+}
+
+async function getBlogWithStatsForUser(blogId, userId) {
+  return db.get(
+    `SELECT b.*,
+      u.photo_url AS author_photo_url,
+      COALESCE(
+        (SELECT COUNT(*) FROM blog_reactions br WHERE br.blog_id = b.id),
+        0
+      ) AS reactions_count,
+      COALESCE(
+        (SELECT COUNT(*) FROM blog_comments bc WHERE bc.blog_id = b.id),
+        0
+      ) AS comments_count,
+      COALESCE(
+        (SELECT COUNT(*) FROM blog_shares bs WHERE bs.blog_id = b.id),
+        0
+      ) AS shares_count,
+      COALESCE(
+        (SELECT reaction_type
+           FROM blog_reactions bur
+          WHERE bur.blog_id = b.id AND bur.user_id = ?
+          LIMIT 1),
+        ''
+      ) AS my_reaction
+     FROM blogs b
+     LEFT JOIN users u ON u.id = b.author_id
+     WHERE b.id = ?
+     LIMIT 1`,
+    userId,
+    blogId,
+  );
 }
 
 async function touchUserActivity(userId) {
@@ -1100,10 +1229,16 @@ function normalizeConsultationPayload(reqBody, patientUser) {
   const rawSubjectName = String(reqBody.subjectName || "").trim();
   const ageYears = Number(reqBody.ageYears);
   const gender = String(reqBody.gender || "").trim();
+  const pregnancyStatus = String(
+    reqBody.pregnancyStatus || CONSULTATION_PREGNANCY_NOT_APPLICABLE,
+  )
+    .trim()
+    .toLowerCase();
   const weightKg = Number(reqBody.weightKg);
   const stateCode = String(reqBody.stateCode || "").trim().toLowerCase();
   const spokenLanguage = String(reqBody.spokenLanguage || "").trim().toLowerCase();
   const symptoms = String(reqBody.symptoms || "").trim();
+  const symptomsVoiceUrl = String(reqBody.symptomsVoiceUrl || "").trim();
 
   const validSubjectType =
     subjectType === CONSULTATION_SUBJECT_SELF ||
@@ -1138,6 +1273,29 @@ function normalizeConsultationPayload(reqBody, patientUser) {
       message: "gender must be male or female.",
     };
   }
+  const validPregnancyStatuses = new Set([
+    CONSULTATION_PREGNANCY_NOT_APPLICABLE,
+    CONSULTATION_PREGNANCY_PREGNANT,
+    CONSULTATION_PREGNANCY_NOT_PREGNANT,
+    CONSULTATION_PREGNANCY_NOT_SURE,
+  ]);
+  if (!validPregnancyStatuses.has(pregnancyStatus)) {
+    return {
+      error: "consultation-pregnancy-status-invalid",
+      message: "pregnancyStatus is invalid.",
+    };
+  }
+  if (gender === CONSULTATION_GENDER_MALE
+    && pregnancyStatus !== CONSULTATION_PREGNANCY_NOT_APPLICABLE) {
+    return {
+      error: "consultation-pregnancy-status-invalid",
+      message: "pregnancyStatus must be not_applicable for male gender.",
+    };
+  }
+  const resolvedPregnancyStatus = gender === CONSULTATION_GENDER_FEMALE
+    && pregnancyStatus === CONSULTATION_PREGNANCY_NOT_APPLICABLE
+    ? CONSULTATION_PREGNANCY_NOT_SURE
+    : pregnancyStatus;
   if (!Number.isFinite(weightKg) || weightKg < 1 || weightKg > 400) {
     return {
       error: "consultation-weight-invalid",
@@ -1166,6 +1324,12 @@ function normalizeConsultationPayload(reqBody, patientUser) {
       message: "symptoms must be between 5 and 2000 characters.",
     };
   }
+  if (symptomsVoiceUrl.length > 1200) {
+    return {
+      error: "consultation-symptoms-voice-url-invalid",
+      message: "symptomsVoiceUrl is too long.",
+    };
+  }
 
   return {
     doctorId,
@@ -1173,10 +1337,12 @@ function normalizeConsultationPayload(reqBody, patientUser) {
     subjectName,
     ageYears,
     gender,
+    pregnancyStatus: resolvedPregnancyStatus,
     weightKg,
     stateCode,
     spokenLanguage,
     symptoms,
+    symptomsVoiceUrl,
   };
 }
 
@@ -2131,9 +2297,10 @@ app.post("/api/consultation-requests", requireAuth, async (req, res) => {
   await db.run(
     `INSERT INTO consultation_requests (
       id, patient_id, target_doctor_id, subject_type, subject_name,
-      age_years, gender, weight_kg, state_code, spoken_language, symptoms,
+      age_years, gender, pregnancy_status, weight_kg, state_code, spoken_language, symptoms,
+      symptoms_voice_url,
       status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     requestId,
     patient.id,
     doctor.id,
@@ -2141,10 +2308,12 @@ app.post("/api/consultation-requests", requireAuth, async (req, res) => {
     normalized.subjectName,
     normalized.ageYears,
     normalized.gender,
+    normalized.pregnancyStatus,
     normalized.weightKg,
     normalized.stateCode,
     normalized.spokenLanguage,
     normalized.symptoms,
+    normalized.symptomsVoiceUrl,
     CONSULTATION_STATUS_PENDING,
     now,
     now,
@@ -2561,10 +2730,12 @@ app.put("/api/consultation-requests/:requestId", requireAuth, async (req, res) =
       subjectName: req.body.subjectName ?? requestRow.subject_name,
       ageYears: req.body.ageYears ?? requestRow.age_years,
       gender: req.body.gender ?? requestRow.gender,
+      pregnancyStatus: req.body.pregnancyStatus ?? requestRow.pregnancy_status,
       weightKg: req.body.weightKg ?? requestRow.weight_kg,
       stateCode: req.body.stateCode ?? requestRow.state_code,
       spokenLanguage: req.body.spokenLanguage ?? requestRow.spoken_language,
       symptoms: req.body.symptoms ?? requestRow.symptoms,
+      symptomsVoiceUrl: req.body.symptomsVoiceUrl ?? requestRow.symptoms_voice_url,
     },
     { name: requestRow.patient_name },
   );
@@ -2575,17 +2746,20 @@ app.put("/api/consultation-requests/:requestId", requireAuth, async (req, res) =
   const now = toIsoNow();
   await db.run(
     `UPDATE consultation_requests
-     SET subject_type = ?, subject_name = ?, age_years = ?, gender = ?, weight_kg = ?,
-         state_code = ?, spoken_language = ?, symptoms = ?, updated_at = ?
+     SET subject_type = ?, subject_name = ?, age_years = ?, gender = ?, pregnancy_status = ?,
+         weight_kg = ?, state_code = ?, spoken_language = ?, symptoms = ?, symptoms_voice_url = ?,
+         updated_at = ?
      WHERE id = ?`,
     normalized.subjectType,
     normalized.subjectName,
     normalized.ageYears,
     normalized.gender,
+    normalized.pregnancyStatus,
     normalized.weightKg,
     normalized.stateCode,
     normalized.spokenLanguage,
     normalized.symptoms,
+    normalized.symptomsVoiceUrl,
     now,
     requestRow.id,
   );
@@ -3147,8 +3321,34 @@ app.post("/api/rooms/:roomId/messages/live", requireAuth, async (req, res) => {
   );
   return res.status(201).json({ message: mapMessageRow(messageRow) });
 });
-app.get("/api/blogs", requireAuth, async (_req, res) => {
-  const rows = await db.all("SELECT * FROM blogs ORDER BY datetime(published_at) DESC");
+app.get("/api/blogs", requireAuth, async (req, res) => {
+  const rows = await db.all(
+    `SELECT b.*,
+      u.photo_url AS author_photo_url,
+      COALESCE(
+        (SELECT COUNT(*) FROM blog_reactions br WHERE br.blog_id = b.id),
+        0
+      ) AS reactions_count,
+      COALESCE(
+        (SELECT COUNT(*) FROM blog_comments bc WHERE bc.blog_id = b.id),
+        0
+      ) AS comments_count,
+      COALESCE(
+        (SELECT COUNT(*) FROM blog_shares bs WHERE bs.blog_id = b.id),
+        0
+      ) AS shares_count,
+      COALESCE(
+        (SELECT reaction_type
+           FROM blog_reactions bur
+          WHERE bur.blog_id = b.id AND bur.user_id = ?
+          LIMIT 1),
+        ''
+      ) AS my_reaction
+     FROM blogs b
+     LEFT JOIN users u ON u.id = b.author_id
+     ORDER BY datetime(b.published_at) DESC`,
+    req.authUser.id,
+  );
   return res.json({ blogs: rows.map(mapBlogRow) });
 });
 
@@ -3160,6 +3360,9 @@ app.post("/api/blogs", requireAuth, async (req, res) => {
   const title = String(req.body.title || "").trim();
   const content = String(req.body.content || "").trim();
   const category = String(req.body.category || "").trim();
+  const expressiveImageUrl1 = String(req.body.expressiveImageUrl1 || "").trim();
+  const expressiveImageUrl2 = String(req.body.expressiveImageUrl2 || "").trim();
+  const expressiveImageUrl3 = String(req.body.expressiveImageUrl3 || "").trim();
 
   if (!title || !content || !category) {
     return apiError(res, 400, "blog-required-fields", "Title, content and category are required.");
@@ -3172,20 +3375,211 @@ app.post("/api/blogs", requireAuth, async (req, res) => {
   const now = toIsoNow();
   await db.run(
     `INSERT INTO blogs (
-      id, title, content, category, author_id, author_name, published_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, title, content, category, author_id, author_name,
+      profile_image_url, expressive_image_url_1, expressive_image_url_2, expressive_image_url_3,
+      published_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     title,
     content,
     category,
     req.authUser.id,
     req.authUser.name,
+    req.authUser.photoUrl || "",
+    expressiveImageUrl1,
+    expressiveImageUrl2,
+    expressiveImageUrl3,
     now,
     now,
   );
 
-  const row = await db.get("SELECT * FROM blogs WHERE id = ?", id);
+  const row = await getBlogWithStatsForUser(id, req.authUser.id);
   return res.status(201).json({ blog: mapBlogRow(row) });
+});
+
+app.post("/api/blogs/:blogId/reactions", requireAuth, async (req, res) => {
+  const blogId = String(req.params.blogId || "").trim();
+  const reactionType = String(req.body.reactionType || "")
+    .trim()
+    .toLowerCase();
+
+  if (!blogId) {
+    return apiError(res, 400, "blog-id-required", "blogId is required.");
+  }
+  if (!BLOG_REACTION_VALUES.has(reactionType)) {
+    return apiError(
+      res,
+      400,
+      "blog-reaction-invalid",
+      "reactionType must be one of like, support or thanks.",
+    );
+  }
+
+  const blogRow = await db.get("SELECT id FROM blogs WHERE id = ?", blogId);
+  if (!blogRow) {
+    return apiError(res, 404, "blog-not-found", "Blog not found.");
+  }
+
+  const existing = await db.get(
+    `SELECT reaction_type
+     FROM blog_reactions
+     WHERE blog_id = ? AND user_id = ?
+     LIMIT 1`,
+    blogId,
+    req.authUser.id,
+  );
+
+  const now = toIsoNow();
+  let myReaction = reactionType;
+  if (existing && existing.reaction_type === reactionType) {
+    await db.run(
+      "DELETE FROM blog_reactions WHERE blog_id = ? AND user_id = ?",
+      blogId,
+      req.authUser.id,
+    );
+    myReaction = "";
+  } else if (existing) {
+    await db.run(
+      `UPDATE blog_reactions
+       SET reaction_type = ?, reacted_at = ?
+       WHERE blog_id = ? AND user_id = ?`,
+      reactionType,
+      now,
+      blogId,
+      req.authUser.id,
+    );
+  } else {
+    await db.run(
+      `INSERT INTO blog_reactions (blog_id, user_id, reaction_type, reacted_at)
+       VALUES (?, ?, ?, ?)`,
+      blogId,
+      req.authUser.id,
+      reactionType,
+      now,
+    );
+  }
+
+  const countRow = await db.get(
+    "SELECT COUNT(*) AS reactions_count FROM blog_reactions WHERE blog_id = ?",
+    blogId,
+  );
+  return res.json({
+    blogId,
+    myReaction,
+    reactionsCount: Number(countRow?.reactions_count || 0),
+  });
+});
+
+app.get("/api/blogs/:blogId/comments", requireAuth, async (req, res) => {
+  const blogId = String(req.params.blogId || "").trim();
+  if (!blogId) {
+    return apiError(res, 400, "blog-id-required", "blogId is required.");
+  }
+
+  const blogRow = await db.get("SELECT id FROM blogs WHERE id = ?", blogId);
+  if (!blogRow) {
+    return apiError(res, 404, "blog-not-found", "Blog not found.");
+  }
+
+  const rows = await db.all(
+    `SELECT *
+     FROM blog_comments
+     WHERE blog_id = ?
+     ORDER BY datetime(created_at) ASC`,
+    blogId,
+  );
+  return res.json({ comments: rows.map(mapBlogCommentRow) });
+});
+
+app.post("/api/blogs/:blogId/comments", requireAuth, async (req, res) => {
+  const blogId = String(req.params.blogId || "").trim();
+  const content = String(req.body.content || "").trim();
+
+  if (!blogId) {
+    return apiError(res, 400, "blog-id-required", "blogId is required.");
+  }
+  if (content.length < 2 || content.length > 1200) {
+    return apiError(
+      res,
+      400,
+      "blog-comment-length-invalid",
+      "Comment must be between 2 and 1200 characters.",
+    );
+  }
+
+  const blogRow = await db.get("SELECT id FROM blogs WHERE id = ?", blogId);
+  if (!blogRow) {
+    return apiError(res, 404, "blog-not-found", "Blog not found.");
+  }
+
+  const id = uuidv4();
+  const now = toIsoNow();
+  await db.run(
+    `INSERT INTO blog_comments (
+      id, blog_id, user_id, user_name, user_photo_url, content, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    id,
+    blogId,
+    req.authUser.id,
+    req.authUser.name,
+    req.authUser.photoUrl || "",
+    content,
+    now,
+    now,
+  );
+
+  const row = await db.get("SELECT * FROM blog_comments WHERE id = ?", id);
+  const countRow = await db.get(
+    "SELECT COUNT(*) AS comments_count FROM blog_comments WHERE blog_id = ?",
+    blogId,
+  );
+  return res.status(201).json({
+    comment: mapBlogCommentRow(row),
+    commentsCount: Number(countRow?.comments_count || 0),
+  });
+});
+
+app.post("/api/blogs/:blogId/shares", requireAuth, async (req, res) => {
+  const blogId = String(req.params.blogId || "").trim();
+  const platform = String(req.body.platform || "")
+    .trim()
+    .toLowerCase();
+
+  if (!blogId) {
+    return apiError(res, 400, "blog-id-required", "blogId is required.");
+  }
+  if (!BLOG_SHARE_VALUES.has(platform)) {
+    return apiError(
+      res,
+      400,
+      "blog-share-platform-invalid",
+      "platform must be one of facebook, x, whatsapp or telegram.",
+    );
+  }
+
+  const blogRow = await db.get("SELECT id FROM blogs WHERE id = ?", blogId);
+  if (!blogRow) {
+    return apiError(res, 404, "blog-not-found", "Blog not found.");
+  }
+
+  await db.run(
+    `INSERT INTO blog_shares (id, blog_id, user_id, platform, shared_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    uuidv4(),
+    blogId,
+    req.authUser.id,
+    platform,
+    toIsoNow(),
+  );
+
+  const countRow = await db.get(
+    "SELECT COUNT(*) AS shares_count FROM blog_shares WHERE blog_id = ?",
+    blogId,
+  );
+  return res.status(201).json({
+    platform,
+    sharesCount: Number(countRow?.shares_count || 0),
+  });
 });
 
 app.use((err, _req, res, _next) => {

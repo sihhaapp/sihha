@@ -1,9 +1,7 @@
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import 'src/constants/medical_specialties.dart';
@@ -29,7 +27,6 @@ class DoctorHomeScreen extends StatefulWidget {
 
 class _DoctorHomeScreenState extends State<DoctorHomeScreen>
     with SingleTickerProviderStateMixin {
-  final ImagePicker _picker = ImagePicker();
   late final AnimationController _bgController;
   int _currentIndex = 0;
   bool _isOnline = true;
@@ -47,322 +44,6 @@ class _DoctorHomeScreenState extends State<DoctorHomeScreen>
   void dispose() {
     _bgController.dispose();
     super.dispose();
-  }
-
-  Future<void> _openSettings() async {
-    await Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const AppSettingsScreen()));
-  }
-
-  Future<void> _pickProfilePhoto(AuthProvider authProvider) async {
-    final tr = context.read<AppSettingsProvider>().tr;
-    final pickedFile = await _picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 85,
-      maxWidth: 1080,
-      maxHeight: 1080,
-    );
-    if (pickedFile == null) return;
-
-    final ok = await authProvider.updateProfilePhoto(File(pickedFile.path));
-    if (!mounted) return;
-    if (ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            tr('تم تحديث الصورة بنجاح.', 'Photo mise a jour avec succes.'),
-          ),
-        ),
-      );
-      return;
-    }
-
-    if (authProvider.errorMessage != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(authProvider.errorMessage!)));
-      authProvider.clearError();
-    }
-  }
-
-  Future<void> _showChangePasswordDialog(AuthProvider authProvider) async {
-    final tr = context.read<AppSettingsProvider>().tr;
-    final currentController = TextEditingController();
-    final newController = TextEditingController();
-    final confirmController = TextEditingController();
-    var isSubmitting = false;
-
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (_, setDialogState) => AlertDialog(
-          title: Text(tr('تعديل كلمة المرور', 'Modifier le mot de passe')),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: currentController,
-                obscureText: true,
-                decoration: InputDecoration(labelText: tr('الحالية', 'Actuel')),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: newController,
-                obscureText: true,
-                decoration: InputDecoration(
-                  labelText: tr('الجديدة', 'Nouveau'),
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: confirmController,
-                obscureText: true,
-                decoration: InputDecoration(
-                  labelText: tr('تأكيد الجديدة', 'Confirmation'),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: isSubmitting
-                  ? null
-                  : () => Navigator.pop(dialogContext),
-              child: Text(tr('إلغاء', 'Annuler')),
-            ),
-            FilledButton(
-              onPressed: isSubmitting
-                  ? null
-                  : () async {
-                      final current = currentController.text.trim();
-                      final next = newController.text.trim();
-                      final confirm = confirmController.text.trim();
-                      if (current.isEmpty || next.isEmpty || confirm.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              tr(
-                                'أدخل جميع الحقول المطلوبة.',
-                                'Remplissez tous les champs.',
-                              ),
-                            ),
-                          ),
-                        );
-                        return;
-                      }
-                      if (next.length < 8) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              tr(
-                                'الحد الأدنى 8 أحرف.',
-                                'Minimum 8 caracteres.',
-                              ),
-                            ),
-                          ),
-                        );
-                        return;
-                      }
-                      if (next != confirm) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              tr(
-                                'تأكيد كلمة المرور غير مطابق.',
-                                'La confirmation ne correspond pas.',
-                              ),
-                            ),
-                          ),
-                        );
-                        return;
-                      }
-
-                      setDialogState(() => isSubmitting = true);
-                      final ok = await authProvider.changePassword(
-                        currentPassword: current,
-                        newPassword: next,
-                      );
-                      if (!mounted || !dialogContext.mounted) return;
-                      setDialogState(() => isSubmitting = false);
-                      if (ok) {
-                        Navigator.pop(dialogContext);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              tr(
-                                'تم تغيير كلمة المرور بنجاح.',
-                                'Mot de passe modifie.',
-                              ),
-                            ),
-                          ),
-                        );
-                        return;
-                      }
-                      if (authProvider.errorMessage != null) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(authProvider.errorMessage!)),
-                        );
-                        authProvider.clearError();
-                      }
-                    },
-              child: isSubmitting
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Text(tr('حفظ', 'Enregistrer')),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showEditProfileDialog(
-    AuthProvider authProvider,
-    AppUser user,
-  ) async {
-    final settings = context.read<AppSettingsProvider>();
-    final tr = settings.tr;
-    var selectedSpecialty = normalizeMedicalSpecialty(user.specialty);
-    final hospitalController = TextEditingController(text: user.hospitalName);
-    final expController = TextEditingController(
-      text: user.experienceYears > 0 ? '${user.experienceYears}' : '',
-    );
-    final studyController = TextEditingController(
-      text: user.studyYears > 0 ? '${user.studyYears}' : '',
-    );
-    var isSubmitting = false;
-
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (_, setDialogState) => AlertDialog(
-          title: Text(
-            tr('تعديل بيانات الطبيب', 'Modifier les donnees du medecin'),
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButtonFormField<String>(
-                  initialValue: selectedSpecialty,
-                  decoration: InputDecoration(
-                    labelText: tr('التخصص', 'Specialite'),
-                  ),
-                  items: kMedicalSpecialties
-                      .map(
-                        (s) => DropdownMenuItem<String>(
-                          value: s.nameAr,
-                          child: Text(settings.isArabic ? s.nameAr : s.nameFr),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: isSubmitting
-                      ? null
-                      : (v) => setDialogState(
-                          () => selectedSpecialty = v ?? selectedSpecialty,
-                        ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: hospitalController,
-                  decoration: InputDecoration(
-                    labelText: tr('اسم المستشفى', 'Nom de l\'hopital'),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: expController,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    labelText: tr('سنوات الخبرة', 'Annees d\'experience'),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: studyController,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    labelText: tr('سنوات الدراسة', 'Annees d\'etudes'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: isSubmitting
-                  ? null
-                  : () => Navigator.pop(dialogContext),
-              child: Text(tr('إلغاء', 'Annuler')),
-            ),
-            FilledButton(
-              onPressed: isSubmitting
-                  ? null
-                  : () async {
-                      final hospital = hospitalController.text.trim();
-                      final exp = int.tryParse(expController.text.trim());
-                      final study = int.tryParse(studyController.text.trim());
-                      if (hospital.isEmpty ||
-                          exp == null ||
-                          study == null ||
-                          exp < 0 ||
-                          study < 0) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              tr(
-                                'تأكد من البيانات المدخلة.',
-                                'Verifiez les donnees saisies.',
-                              ),
-                            ),
-                          ),
-                        );
-                        return;
-                      }
-                      setDialogState(() => isSubmitting = true);
-                      final ok = await authProvider.updateDoctorProfile(
-                        specialty: selectedSpecialty,
-                        hospitalName: hospital,
-                        experienceYears: exp,
-                        studyYears: study,
-                      );
-                      if (!mounted || !dialogContext.mounted) return;
-                      setDialogState(() => isSubmitting = false);
-                      if (ok) {
-                        Navigator.pop(dialogContext);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              tr(
-                                'تم تحديث البيانات بنجاح.',
-                                'Donnees mises a jour.',
-                              ),
-                            ),
-                          ),
-                        );
-                      } else if (authProvider.errorMessage != null) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(authProvider.errorMessage!)),
-                        );
-                        authProvider.clearError();
-                      }
-                    },
-              child: isSubmitting
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Text(tr('حفظ', 'Enregistrer')),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   @override
@@ -386,22 +67,7 @@ class _DoctorHomeScreenState extends State<DoctorHomeScreen>
               _AnimatedBackdrop(controller: _bgController),
               SafeArea(
                 child: _currentIndex == 3
-                    ? _DoctorAccountView(
-                        user: user,
-                        onPickPhoto: authProvider.isLoading
-                            ? null
-                            : () => _pickProfilePhoto(authProvider),
-                        onEditProfile: authProvider.isLoading
-                            ? null
-                            : () => _showEditProfileDialog(authProvider, user),
-                        onChangePassword: authProvider.isLoading
-                            ? null
-                            : () => _showChangePasswordDialog(authProvider),
-                        onSettings: _openSettings,
-                        onLogout: authProvider.isLoading
-                            ? null
-                            : authProvider.signOut,
-                      )
+                    ? const AppSettingsScreen()
                     : _currentIndex == 2
                     ? DoctorHealthBlogsSection(currentUser: user)
                     : _currentIndex == 1
@@ -423,22 +89,22 @@ class _DoctorHomeScreenState extends State<DoctorHomeScreen>
               NavigationDestination(
                 icon: const Icon(Icons.dashboard_outlined),
                 selectedIcon: const Icon(Icons.dashboard),
-                label: tr('اللوحة', 'Tableau'),
+                label: tr('\u0627\u0644\u0644\u0648\u062d\u0629', 'Tableau'),
               ),
               NavigationDestination(
                 icon: const Icon(Icons.chat_bubble_outline),
                 selectedIcon: const Icon(Icons.chat_bubble),
-                label: tr('المحادثات', 'Discussions'),
+                label: tr('\u0627\u0644\u0645\u062d\u0627\u062f\u062b\u0627\u062a', 'Discussions'),
               ),
               NavigationDestination(
                 icon: const Icon(Icons.menu_book_outlined),
                 selectedIcon: const Icon(Icons.menu_book_rounded),
-                label: tr('المدونات', 'Blogs'),
+                label: tr('\u0627\u0644\u0645\u062f\u0648\u0646\u0627\u062a', 'Blogs'),
               ),
               NavigationDestination(
-                icon: const Icon(Icons.person_outline),
-                selectedIcon: const Icon(Icons.person),
-                label: tr('حسابي', 'Mon compte'),
+                icon: const Icon(Icons.settings_outlined),
+                selectedIcon: const Icon(Icons.settings_rounded),
+                label: tr('\u0627\u0644\u0625\u0639\u062f\u0627\u062f\u0627\u062a', 'Parametres'),
               ),
             ],
           ),
@@ -468,122 +134,151 @@ class _DoctorDashboardView extends StatelessWidget {
     return StreamBuilder<List<ChatRoom>>(
       stream: chatProvider.chatRoomsStream(userId: user.id, role: user.role),
       builder: (context, snapshot) {
-        final rooms = snapshot.data ?? const <ChatRoom>[];
+        final now = DateTime.now();
+        final rooms = [...(snapshot.data ?? const <ChatRoom>[])]
+          ..sort((a, b) => b.lastUpdatedAt.compareTo(a.lastUpdatedAt));
         final todayCount = rooms.where((r) {
           final d = r.lastUpdatedAt;
-          final n = DateTime.now();
-          return d.year == n.year && d.month == n.month && d.day == n.day;
+          return d.year == now.year && d.month == now.month && d.day == now.day;
         }).length;
+        final activeCount = rooms.where((room) => !room.isClosed).length;
+        final waitingCount = rooms
+            .where(
+              (room) => room.lastMessage.trim().isEmpty || room.unreadCount > 0,
+            )
+            .length;
+        final unreadCount = rooms.fold<int>(
+          0,
+          (sum, room) => sum + room.unreadCount,
+        );
+        final shiftLabel = now.hour < 12
+            ? tr('\u0627\u0644\u062f\u0648\u0627\u0645 \u0627\u0644\u0635\u0628\u0627\u062d\u064a', 'Service du matin')
+            : now.hour < 18
+            ? tr('\u062f\u0648\u0627\u0645 \u0628\u0639\u062f \u0627\u0644\u0638\u0647\u0631', 'Service de l\'apres-midi')
+            : tr('\u0627\u0644\u062f\u0648\u0627\u0645 \u0627\u0644\u0645\u0633\u0627\u0626\u064a', 'Service du soir');
 
         return ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
           children: [
-            _Card(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    user.name,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  Text(
-                    localizeMedicalSpecialty(
-                      user.specialty,
-                      isArabic: settings.isArabic,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          isOnline
-                              ? tr('متاح لاستقبال الاستشارات', 'Disponible')
-                              : tr('غير متاح حالياً', 'Indisponible'),
-                        ),
-                      ),
-                      Switch(value: isOnline, onChanged: onToggleOnline),
-                    ],
-                  ),
-                ],
+            _DoctorHeroCard(
+              doctorName: user.name,
+              specialty: localizeMedicalSpecialty(
+                user.specialty,
+                isArabic: settings.isArabic,
               ),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: _Card(
-                    child: _Stat(
-                      title: tr('استشارات اليوم', 'Aujourd\'hui'),
-                      value: '$todayCount',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _Card(
-                    child: _Stat(
-                      title: tr('طلبات معلقة', 'En attente'),
-                      value: '${rooms.length}',
-                    ),
-                  ),
-                ),
-              ],
+              shiftLabel: shiftLabel,
+              isOnline: isOnline,
+              onToggleOnline: onToggleOnline,
+              onlineLabel: tr('\u0645\u062a\u0627\u062d \u0627\u0644\u0622\u0646', 'Disponible maintenant'),
+              offlineLabel: tr('\u063a\u064a\u0631 \u0645\u062a\u0627\u062d \u062d\u0627\u0644\u064a\u0627\u064b', 'Indisponible'),
+              availabilityTitle: tr('\u062a\u0648\u0641\u0631 \u0627\u0644\u0627\u0633\u062a\u0634\u0627\u0631\u0629', 'Disponibilite de consultation',),
             ),
             const SizedBox(height: 12),
-            Text(
-              tr('صندوق الوارد', 'Boite de reception'),
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final tileWidth = (constraints.maxWidth - 10) / 2;
+                return Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    SizedBox(
+                      width: tileWidth,
+                      child: _MetricCard(
+                        icon: Icons.today_rounded,
+                        title: tr('\u0627\u0633\u062a\u0634\u0627\u0631\u0627\u062a \u0627\u0644\u064a\u0648\u0645', 'Consultations du jour',),
+                        value: '$todayCount',
+                        accent: SihhaPalette.primary,
+                      ),
+                    ),
+                    SizedBox(
+                      width: tileWidth,
+                      child: _MetricCard(
+                        icon: Icons.forum_rounded,
+                        title: tr('\u0627\u0644\u063a\u0631\u0641 \u0627\u0644\u0646\u0634\u0637\u0629', 'Salles actives'),
+                        value: '$activeCount',
+                        accent: SihhaPalette.secondary,
+                      ),
+                    ),
+                    SizedBox(
+                      width: tileWidth,
+                      child: _MetricCard(
+                        icon: Icons.pending_actions_rounded,
+                        title: tr('\u062a\u062d\u062a\u0627\u062c \u0645\u062a\u0627\u0628\u0639\u0629', 'Suivi requis'),
+                        value: '$waitingCount',
+                        accent: const Color(0xFFEA580C),
+                      ),
+                    ),
+                    SizedBox(
+                      width: tileWidth,
+                      child: _MetricCard(
+                        icon: Icons.mark_chat_unread_rounded,
+                        title: tr('\u0631\u0633\u0627\u0626\u0644 \u063a\u064a\u0631 \u0645\u0642\u0631\u0648\u0621\u0629', 'Messages non lus'),
+                        value: '$unreadCount',
+                        accent: const Color(0xFF4F46E5),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 16),
+            _SectionHeader(
+              title: tr('\u0622\u062e\u0631 \u0627\u0644\u0645\u062d\u0627\u062f\u062b\u0627\u062a', 'Conversations recentes'),
+              subtitle: tr('\u0627\u0641\u062a\u062d \u063a\u0631\u0641\u0629 \u0644\u0645\u062a\u0627\u0628\u0639\u0629 \u0627\u0644\u0627\u0633\u062a\u0634\u0627\u0631\u0629 \u0627\u0644\u0637\u0628\u064a\u0629.', 'Ouvrez une salle pour poursuivre le suivi medical.',),
+            ),
+            const SizedBox(height: 10),
             if (rooms.isEmpty)
               _Card(
                 child: Center(
-                  child: Text(
-                    tr(
-                      'لا توجد محادثات بعد.',
-                      'Aucune discussion pour le moment.',
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Column(
+                      children: [
+                        Icon(
+                          Icons.chat_bubble_outline_rounded,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          tr('\u0644\u0627 \u062a\u0648\u062c\u062f \u0645\u062d\u0627\u062f\u062b\u0627\u062a \u0628\u0639\u062f.', 'Aucune discussion pour le moment.',),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
                     ),
                   ),
                 ),
               )
             else
               ...rooms.map((room) {
+                final timeLabel = _formatRoomTime(
+                  value: room.lastUpdatedAt,
+                  now: now,
+                  yesterdayLabel: tr('\u0623\u0645\u0633', 'Hier'),
+                );
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: _Card(
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(room.patientName),
-                      subtitle: Text(
-                        room.lastMessage.isEmpty
-                            ? tr(
-                                'ابدأ المحادثة الآن',
-                                'Commencez la discussion',
-                              )
-                            : room.lastMessage,
-                      ),
-                      trailing: Text(
-                        '${room.lastUpdatedAt.hour.toString().padLeft(2, '0')}:${room.lastUpdatedAt.minute.toString().padLeft(2, '0')}',
-                      ),
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                ChangeNotifierProvider<ChatProvider>.value(
-                                  value: context.read<ChatProvider>(),
-                                  child: ChatScreen(
-                                    room: room,
-                                    currentUser: user,
-                                  ),
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _InboxRoomCard(
+                    patientName: room.patientName,
+                    subtitle: room.lastMessage.trim().isEmpty
+                        ? tr('\u0627\u0628\u062f\u0623 \u0627\u0644\u0645\u062d\u0627\u062f\u062b\u0629 \u0627\u0644\u0622\u0646', 'Commencez la discussion',)
+                        : room.lastMessage,
+                    timeLabel: timeLabel,
+                    unreadCount: room.unreadCount,
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              ChangeNotifierProvider<ChatProvider>.value(
+                                value: context.read<ChatProvider>(),
+                                child: ChatScreen(
+                                  room: room,
+                                  currentUser: user,
                                 ),
-                          ),
-                        );
-                      },
-                    ),
+                              ),
+                        ),
+                      );
+                    },
+                    unreadLabel: tr('\u062c\u062f\u064a\u062f', 'nouveau'),
                   ),
                 );
               }),
@@ -594,104 +289,387 @@ class _DoctorDashboardView extends StatelessWidget {
   }
 }
 
-class _DoctorAccountView extends StatelessWidget {
-  const _DoctorAccountView({
-    required this.user,
-    required this.onPickPhoto,
-    required this.onEditProfile,
-    required this.onChangePassword,
-    required this.onSettings,
-    required this.onLogout,
+class _DoctorHeroCard extends StatelessWidget {
+  const _DoctorHeroCard({
+    required this.doctorName,
+    required this.specialty,
+    required this.shiftLabel,
+    required this.isOnline,
+    required this.onToggleOnline,
+    required this.onlineLabel,
+    required this.offlineLabel,
+    required this.availabilityTitle,
   });
 
-  final AppUser user;
-  final VoidCallback? onPickPhoto;
-  final VoidCallback? onEditProfile;
-  final VoidCallback? onChangePassword;
-  final VoidCallback? onSettings;
-  final VoidCallback? onLogout;
+  final String doctorName;
+  final String specialty;
+  final String shiftLabel;
+  final bool isOnline;
+  final ValueChanged<bool> onToggleOnline;
+  final String onlineLabel;
+  final String offlineLabel;
+  final String availabilityTitle;
 
   @override
   Widget build(BuildContext context) {
-    final settings = context.watch<AppSettingsProvider>();
-    final tr = settings.tr;
-
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        _Card(
-          child: Column(
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: isDark
+              ? const [Color(0xFF112739), Color(0xFF0E1726)]
+              : const [Color(0xFF0F766E), Color(0xFF0EA5A1)],
+        ),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.24),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.28 : 0.12),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              CircleAvatar(
-                radius: 42,
-                backgroundImage: user.photoUrl.trim().isEmpty
-                    ? null
-                    : NetworkImage(user.photoUrl),
-                child: user.photoUrl.trim().isEmpty
-                    ? const Icon(Icons.person, size: 32)
-                    : null,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                user.name,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 18,
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.18),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.local_hospital_rounded,
+                  color: Colors.white,
                 ),
               ),
-              Text(user.phoneNumber),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: onPickPhoto,
-                icon: const Icon(Icons.photo_library_rounded),
-                label: Text(
-                  tr(
-                    'تحميل صورة الطبيب من المعرض',
-                    'Charger la photo depuis la galerie',
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      doctorName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.tajawal(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      specialty,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.tajawal(
+                        color: Colors.white.withValues(alpha: 0.92),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  shiftLabel,
+                  style: GoogleFonts.tajawal(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
                   ),
                 ),
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 10),
-        _Card(
-          child: Column(
+          const SizedBox(height: 14),
+          Row(
             children: [
-              ListTile(
-                leading: const Icon(Icons.edit),
-                title: Text(tr('تعديل بيانات الطبيب', 'Modifier les donnees')),
-                onTap: onEditProfile,
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.lock_reset),
-                title: Text(
-                  tr('تعديل كلمة المرور', 'Modifier le mot de passe'),
+              Expanded(
+                child: Text(
+                  availabilityTitle,
+                  style: GoogleFonts.tajawal(
+                    color: Colors.white.withValues(alpha: 0.94),
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-                onTap: onChangePassword,
               ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.settings),
-                title: Text(tr('الإعدادات', 'Parametres')),
-                onTap: onSettings,
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.logout, color: Colors.red),
-                title: Text(
-                  tr('تسجيل الخروج', 'Se deconnecter'),
-                  style: const TextStyle(color: SihhaPalette.danger),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(999),
                 ),
-                onTap: onLogout,
+                child: Text(
+                  isOnline ? onlineLabel : offlineLabel,
+                  style: GoogleFonts.tajawal(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
+              const SizedBox(width: 8),
+              Switch.adaptive(value: isOnline, onChanged: onToggleOnline),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetricCard extends StatelessWidget {
+  const _MetricCard({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.accent,
+  });
+
+  final IconData icon;
+  final String title;
+  final String value;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: isDark ? 0.20 : 0.14),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: accent, size: 20),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            value,
+            style: GoogleFonts.tajawal(
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            title,
+            style: GoogleFonts.tajawal(
+              fontWeight: FontWeight.w600,
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.75),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.title, required this.subtitle});
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: GoogleFonts.tajawal(fontSize: 19, fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          subtitle,
+          style: GoogleFonts.tajawal(
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.66),
           ),
         ),
       ],
     );
   }
+}
+
+class _InboxRoomCard extends StatelessWidget {
+  const _InboxRoomCard({
+    required this.patientName,
+    required this.subtitle,
+    required this.timeLabel,
+    required this.unreadCount,
+    required this.onTap,
+    required this.unreadLabel,
+  });
+
+  final String patientName;
+  final String subtitle;
+  final String timeLabel;
+  final int unreadCount;
+  final VoidCallback onTap;
+  final String unreadLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Card(
+      padding: EdgeInsets.zero,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 22,
+                  backgroundColor: SihhaPalette.primary.withValues(alpha: 0.15),
+                  child: Text(
+                    _initialsFromName(patientName),
+                    style: GoogleFonts.tajawal(
+                      color: SihhaPalette.primaryDeep,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        patientName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.tajawal(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.tajawal(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: 0.70),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      timeLabel,
+                      style: GoogleFonts.tajawal(
+                        fontWeight: FontWeight.w700,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withValues(alpha: 0.60),
+                      ),
+                    ),
+                    if (unreadCount > 0) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: SihhaPalette.primary.withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          '$unreadCount $unreadLabel',
+                          style: GoogleFonts.tajawal(
+                            color: SihhaPalette.primaryDeep,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 11.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _formatRoomTime({
+  required DateTime value,
+  required DateTime now,
+  required String yesterdayLabel,
+}) {
+  final isToday =
+      value.year == now.year &&
+      value.month == now.month &&
+      value.day == now.day;
+  if (isToday) {
+    return '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+  }
+  final yesterday = now.subtract(const Duration(days: 1));
+  final isYesterday =
+      value.year == yesterday.year &&
+      value.month == yesterday.month &&
+      value.day == yesterday.day;
+  if (isYesterday) {
+    return yesterdayLabel;
+  }
+  return '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')}';
+}
+
+String _initialsFromName(String name) {
+  final parts = name
+      .trim()
+      .split(RegExp(r'\s+'))
+      .where((part) => part.isNotEmpty)
+      .toList();
+  if (parts.isEmpty) {
+    return '?';
+  }
+  if (parts.length == 1) {
+    return parts.first.substring(0, 1).toUpperCase();
+  }
+  return '${parts.first.substring(0, 1)}${parts.last.substring(0, 1)}'
+      .toUpperCase();
 }
 
 class _AnimatedBackdrop extends StatelessWidget {
@@ -757,34 +735,16 @@ class _AnimatedBackdrop extends StatelessWidget {
 }
 
 class _Card extends StatelessWidget {
-  const _Card({required this.child});
+  const _Card({required this.child, this.padding = const EdgeInsets.all(14)});
   final Widget child;
+  final EdgeInsetsGeometry padding;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: padding,
       decoration: sihhaGlassCardDecoration(context: context),
       child: child,
-    );
-  }
-}
-
-class _Stat extends StatelessWidget {
-  const _Stat({required this.title, required this.value});
-  final String title;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
-        ),
-        Text(title),
-      ],
     );
   }
 }

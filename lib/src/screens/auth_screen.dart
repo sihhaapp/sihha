@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../constants/brand_identity.dart';
 import '../models/app_user.dart';
 import '../providers/app_settings_provider.dart';
 import '../providers/auth_provider.dart';
@@ -19,7 +20,7 @@ class _AuthScreenState extends State<AuthScreen>
     with SingleTickerProviderStateMixin {
   static const String _chadPrefix = '+235';
   static const String _adminLocalPhone = '00000000';
-  static const String _logoAsset = 'assets/branding/logo.png';
+  static const String _logoAsset = 'assets/logo (2).png';
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
@@ -92,8 +93,7 @@ class _AuthScreenState extends State<AuthScreen>
             tr('استعادة كلمة المرور', 'Recuperation du mot de passe'),
           ),
           content: Text(
-            tr(
-              'إذا نسيت كلمة المرور، تواصل مع إدارة المنصة لإعادة تعيينها. بعد تسجيل الدخول يمكنك تغيير كلمة المرور من الإعدادات.',
+            tr('إذا نسيت كلمة المرور، تواصل مع إدارة المنصة لإعادة تعيينها. بعد تسجيل الدخول يمكنك تغيير كلمة المرور من الإعدادات.',
               'Si vous avez oublie votre mot de passe, contactez l administration pour le reinitialiser. Apres connexion, vous pouvez le modifier depuis les parametres.',
             ),
           ),
@@ -138,8 +138,7 @@ class _AuthScreenState extends State<AuthScreen>
     final digits = _normalizeLocalPhoneDigits(value);
 
     if (digits.length != 8) {
-      return tr(
-        'رقم الهاتف في تشاد يجب أن يكون 8 أرقام.',
+      return tr('رقم الهاتف في تشاد يجب أن يكون 8 أرقام.',
         'Le numero tchadien doit contenir 8 chiffres.',
       );
     }
@@ -175,15 +174,7 @@ class _AuthScreenState extends State<AuthScreen>
                             Center(child: _LogoBadge(assetPath: _logoAsset)),
                             const SizedBox(height: 14),
                             Text(
-                              _isLogin
-                                  ? tr(
-                                      'مرحبًا بك في صحّة',
-                                      'Bienvenue sur Sihha',
-                                    )
-                                  : tr(
-                                      'إنشاء حساب صحي جديد',
-                                      'Creer un compte sante',
-                                    ),
+                              BrandIdentity.name,
                               textAlign: TextAlign.center,
                               style: Theme.of(context).textTheme.headlineSmall
                                   ?.copyWith(
@@ -195,15 +186,10 @@ class _AuthScreenState extends State<AuthScreen>
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              _isLogin
-                                  ? tr(
-                                      'سجّل الدخول للوصول الآمن إلى ملفك الصحي ومحادثاتك.',
-                                      'Connectez-vous pour acceder en securite a votre dossier et vos conversations.',
-                                    )
-                                  : tr(
-                                      'ابدأ رحلتك الصحية معنا خلال أقل من دقيقة.',
-                                      'Demarrez votre parcours sante en moins d une minute.',
-                                    ),
+                              tr(
+                                '${BrandIdentity.positioningAr}\n${BrandIdentity.sloganAr}',
+                                '${BrandIdentity.positioningFr}\n${BrandIdentity.sloganFr}',
+                              ),
                               textAlign: TextAlign.center,
                               style: Theme.of(context).textTheme.bodyMedium
                                   ?.copyWith(
@@ -228,8 +214,7 @@ class _AuthScreenState extends State<AuthScreen>
                                 validator: (value) {
                                   if (value == null ||
                                       value.trim().length < 3) {
-                                    return tr(
-                                      'أدخل اسمًا صحيحًا (3 أحرف على الأقل).',
+                                    return tr('أدخل اسمًا صحيحًا (3 أحرف على الأقل).',
                                       'Saisissez un nom valide (3 caracteres minimum).',
                                     );
                                   }
@@ -268,8 +253,7 @@ class _AuthScreenState extends State<AuthScreen>
                               keyboardType: TextInputType.phone,
                               textInputAction: TextInputAction.next,
                               decoration: InputDecoration(
-                                labelText: tr(
-                                  'رقم الهاتف',
+                                labelText: tr('رقم الهاتف',
                                   'Numero de telephone',
                                 ),
                                 hintText: '66123456',
@@ -312,8 +296,7 @@ class _AuthScreenState extends State<AuthScreen>
                                       ? null
                                       : _showForgotPasswordHint,
                                   child: Text(
-                                    tr(
-                                      'هل نسيت كلمة السر؟',
+                                    tr('هل نسيت كلمة السر؟',
                                       'Mot de passe oublie ?',
                                     ),
                                   ),
@@ -346,8 +329,7 @@ class _AuthScreenState extends State<AuthScreen>
                                   : Text(
                                       _isLogin
                                           ? tr('تسجيل الدخول', 'Connexion')
-                                          : tr(
-                                              'إنشاء الحساب',
+                                          : tr('إنشاء الحساب',
                                               'Creer le compte',
                                             ),
                                     ),
@@ -370,8 +352,7 @@ class _AuthScreenState extends State<AuthScreen>
                                   ),
                                 ),
                                 child: Text(
-                                  tr(
-                                    'إنشاء حساب جديد',
+                                  tr('إنشاء حساب جديد',
                                     'Creer un nouveau compte',
                                   ),
                                   style: const TextStyle(
@@ -385,8 +366,7 @@ class _AuthScreenState extends State<AuthScreen>
                                     ? null
                                     : () => setState(() => _isLogin = true),
                                 child: Text(
-                                  tr(
-                                    'لديك حساب بالفعل؟ تسجيل الدخول',
+                                  tr('لديك حساب بالفعل؟ تسجيل الدخول',
                                     'Vous avez deja un compte ? Connexion',
                                   ),
                                 ),
